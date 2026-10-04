@@ -1,0 +1,7 @@
+A Terraform circular dependency was classified as: {category}
+
+Resources involved:
+{code}
+
+Write a short, plain-English explanation (3-4 sentences) of why this is a {category} 
+problem and what change would fix it. Be specific to these resources, not generic.

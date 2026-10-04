@@ -1,0 +1,6 @@
+[
+  {"code": "resource \"aws_iam_role_policy\" grants access to the cluster it is attached to, and the cluster needs that role to exist first", "category": "modeling_mistake"},
+  {"code": "resource \"aws_eks_cluster\" depends on a state bucket that doesn't exist yet, and the bucket policy depends on the cluster", "category": "manual_seed"},
+  {"code": "network module outputs a subnet id consumed by the app module, while the network module reads an app security group id", "category": "cross_layer_split"},
+  {"code": "database must be created before the app user, but the migration step that creates the user must run before the database is marked ready", "category": "sequencing_fix"}
+]

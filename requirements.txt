@@ -1,0 +1,6 @@
+networkx==3.3
+pydot==3.0.1
+ollama==0.3.3
+redis==5.0.8
+psycopg2-binary==2.9.10
+python-dotenv==1.0.1

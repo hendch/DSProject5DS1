@@ -1,0 +1,9 @@
+You are classifying a Terraform/OpenTofu circular dependency into exactly one category.
+Categories: cross_layer_split, modeling_mistake, sequencing_fix, manual_seed
+
+Examples:
+{examples}
+
+Classify this cycle. Respond with ONLY the category name, nothing else, no punctuation.
+
+{code}
