@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: devops
+      POSTGRES_PASSWORD: devops
+      POSTGRES_DB: agents
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+  chroma:
+    image: chromadb/chroma
+    ports: ["8000:8000"]
+volumes:
+  pgdata:
