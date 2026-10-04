@@ -1,0 +1,19 @@
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local data from Chroma and other tools
+chroma_data/
+*.sqlite3
