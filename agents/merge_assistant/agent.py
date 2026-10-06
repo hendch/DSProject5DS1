@@ -16,7 +16,6 @@ MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
 
 
 def make_demo_repo(path: Path) -> None:
-    """Create a repo with two branches that edit the same line."""
     if path.exists():
         shutil.rmtree(path, onerror=lambda f, p, e: (os.chmod(p, 0o700), f(p)))
     path.mkdir(parents=True)
@@ -39,7 +38,6 @@ def make_demo_repo(path: Path) -> None:
 
 
 def detect_conflicts(repo_path: Path, a: str, b: str) -> dict:
-    """Try merging b into a inside a temp clone. Returns {file: text with markers}."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         clone = Repo.clone_from(str(repo_path), tmp)
         with clone.config_writer() as c:
@@ -78,8 +76,8 @@ def emit(correlation_id, branch_a, branch_b, summary, resolution, conflicts):
         },
         correlation_id=correlation_id,
         environment="dev",
-        blast_radius="low",  # only suggests, never merges
-        category=f"flagged conflict in {', '.join(conflicts)}",  # saved in the decision column
+        blast_radius="low",  
+        category=f"flagged conflict in {', '.join(conflicts)}", 
         input_summary=f"Merge {branch_b} into {branch_a}: {len(conflicts)} conflicted file(s)",
     )
 
