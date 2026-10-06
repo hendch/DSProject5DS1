@@ -7,3 +7,4 @@ venv/
 *.tfstate*
 .terraform.lock.hcl
 *.egg-info/
+agents/merge_assistant/test-repo/
