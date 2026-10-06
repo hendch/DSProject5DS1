@@ -1,0 +1,68 @@
+[
+  {
+    "log": "npm ERR! code ERESOLVE\nnpm ERR! ERESOLVE could not resolve\nnpm ERR! Found: react@18.2.0\nnpm ERR! Could not resolve dependency: peer react@\"^17.0.0\" from react-datepicker@4.8.0\nError: Process completed with exit code 1.",
+    "output": {
+      "failure_summary": "npm install failed because a package requires React 17 while the project uses React 18.",
+      "ranked_causes": [
+        {
+          "cause": "Peer dependency conflict: react-datepicker@4.8.0 requires react ^17 but the project has react 18.2.0",
+          "confidence": 0.9,
+          "source": "example-doc-peer-deps"
+        },
+        {
+          "cause": "package-lock.json is out of sync with package.json",
+          "confidence": 0.2,
+          "source": "none"
+        }
+      ]
+    },
+    "docs": [
+      {
+        "source": "example-doc-peer-deps",
+        "text": "npm ERESOLVE errors mean a package's peer dependency range conflicts with an installed version. Align versions or use a compatible release."
+      }
+    ]
+  },
+  {
+    "log": "Step 5/8 : RUN pip install -r requirements.txt\nERROR: Could not find a version that satisfies the requirement numpy==2.5.0\nERROR: No matching distribution found for numpy==2.5.0\nThe command '/bin/sh -c pip install -r requirements.txt' returned a non-zero code: 1",
+    "output": {
+      "failure_summary": "Docker image build failed at pip install because the pinned numpy version cannot be found.",
+      "ranked_causes": [
+        {
+          "cause": "requirements.txt pins numpy==2.5.0, a version that does not exist or is unsupported by the base image's Python",
+          "confidence": 0.8,
+          "source": "example-doc-pip-pins"
+        },
+        {
+          "cause": "Base image Python version is too old for the pinned numpy release",
+          "confidence": 0.45,
+          "source": "none"
+        }
+      ]
+    },
+    "docs": [
+      {
+        "source": "example-doc-pip-pins",
+        "text": "'No matching distribution found' during pip install usually means the pinned version does not exist or the Python version is unsupported."
+      }
+    ]
+  },
+  {
+    "log": "Error: Error acquiring the state lock\nLock Info:\n  ID: 8f2c1e4a\n  Operation: OperationTypeApply\nAnother operation is holding the lock.\nError: Process completed with exit code 1.",
+    "output": {
+      "failure_summary": "tofu apply failed because the remote state is locked by another operation.",
+      "ranked_causes": [
+        {
+          "cause": "A concurrent pipeline run or a previously crashed run still holds the state lock",
+          "confidence": 0.85,
+          "source": "none"
+        },
+        {
+          "cause": "Stale lock left behind by an interrupted apply that needs a manual force-unlock",
+          "confidence": 0.4,
+          "source": "none"
+        }
+      ]
+    }
+  }
+]
