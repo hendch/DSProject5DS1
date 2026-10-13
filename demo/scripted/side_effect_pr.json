@@ -1,0 +1,7 @@
+{
+  "summary": "Offline stand-in for a naive review: it trusts the linter and requests F401 on an import that is only used for its side effect.",
+  "fix_requests": [
+    {"file": "train.py", "rule_code": "F401"}
+  ],
+  "findings": []
+}

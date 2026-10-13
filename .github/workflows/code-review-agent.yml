@@ -56,7 +56,9 @@ jobs:
         working-directory: target
         run: |
           mkdir -p "$REPORTS"
-          python -m ruff check --no-cache --output-format json --exit-zero . > "$REPORTS/lint.json"
+          # Repo config plus the rules the agent may fix, so those findings appear in the report.
+          python -m ruff check --no-cache --extend-select I001,W291,W292,W293 \
+            --output-format json --exit-zero . > "$REPORTS/lint.json"
           python -m pytest -q -p no:cacheprovider --junitxml "$REPORTS/junit.xml" || true
 
       - name: Run agent (review, safe fixes, validation)
