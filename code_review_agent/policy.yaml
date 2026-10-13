@@ -50,7 +50,7 @@ limits:
 
 # Checks that must pass after fixes. {python} is the agent's interpreter.
 validation_commands:
-  - "{python} -m ruff check --isolated --select E9,F63,F7,F82,F401 ."
+  - "{python} -m ruff check --isolated --no-cache --select E9,F63,F7,F82,F401 ."
   - "{python} -m pytest -q -p no:cacheprovider"
 
 # The publish job refuses to push anywhere else.

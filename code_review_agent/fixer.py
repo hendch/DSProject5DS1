@@ -35,14 +35,15 @@ def apply_fixes(repo: str | Path, requests: list[FixRequest], policy: Policy, py
     timeout = policy.limits.command_timeout_s
     for file, rules in sorted(grouped.items()):
         # --isolated ignores repo config, so only the selected rules run; no --unsafe-fixes.
-        cmd = [python, "-m", "ruff", "check", "--isolated", "--select", ",".join(rules), "--fix", "--exit-zero", file]
+        cmd = [python, "-m", "ruff", "check", "--isolated", "--no-cache", "--select", ",".join(rules),
+               "--fix", "--exit-zero", file]
         res = run(cmd, cwd=repo, timeout=timeout)
         result.log.append(f"$ ruff check --select {','.join(rules)} --fix {file}\n{res.tail(800)}")
         if not res.ok:
             result.ok = False
             return result
         if policy.format_files:
-            res = run([python, "-m", "ruff", "format", "--isolated", file], cwd=repo, timeout=timeout)
+            res = run([python, "-m", "ruff", "format", "--isolated", "--no-cache", file], cwd=repo, timeout=timeout)
             result.log.append(f"$ ruff format {file}\n{res.tail(800)}")
             if not res.ok:
                 result.ok = False

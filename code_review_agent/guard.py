@@ -38,16 +38,24 @@ def _numstat(repo: Path) -> list[tuple[int, int, str]]:
     return rows
 
 
+def untracked_files(repo: str | Path) -> set[str]:
+    return {ln[3:] for ln in git(repo, "status", "--porcelain").splitlines() if ln.startswith("??")}
+
+
 def check_worktree(
-    repo: str | Path, policy: Policy, allowed_files: dict[str, list[str]], python: str = sys.executable
+    repo: str | Path,
+    policy: Policy,
+    allowed_files: dict[str, list[str]],
+    untracked_before: set[str] = frozenset(),
+    python: str = sys.executable,
 ) -> list[str]:
     """allowed_files maps each file the fixer was allowed to touch to its requested rule codes."""
     repo = Path(repo)
     problems: list[str] = []
 
-    untracked = [ln[3:] for ln in git(repo, "status", "--porcelain").splitlines() if ln.startswith("??")]
-    if untracked:
-        problems.append(f"new files appeared: {', '.join(untracked[:5])}")
+    new_files = sorted(untracked_files(repo) - set(untracked_before))
+    if new_files:
+        problems.append(f"new files appeared: {', '.join(new_files[:5])}")
 
     rows = _numstat(repo)
     total = 0
@@ -68,8 +76,8 @@ def check_worktree(
     # The requested lint codes must actually be gone.
     for path, rules in allowed_files.items():
         res = run(
-            [python, "-m", "ruff", "check", "--isolated", "--select", ",".join(rules), "--output-format", "json",
-             "--exit-zero", path],
+            [python, "-m", "ruff", "check", "--isolated", "--no-cache", "--select", ",".join(rules),
+             "--output-format", "json", "--exit-zero", path],
             cwd=repo,
         )
         remaining = {item["code"] for item in json.loads(res.stdout or "[]")}
