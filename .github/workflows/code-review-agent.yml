@@ -1,0 +1,127 @@
+name: code-review-agent
+
+# Standalone workflow. It exists only on `code-reviewer` and branches made from it,
+# so PRs from teammates' agent branches never run it. It imports no other agent.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: code-review-agent-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Same-repo PRs only (fork code never reaches the VPS) and never the agent's own branches.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !startsWith(github.head_ref, 'bot/') &&
+      github.actor != 'github-actions[bot]'
+    runs-on: [self-hosted, linux, code-review-agent]
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      REPORTS: ${{ runner.temp }}/reports
+    steps:
+      - name: Check out PR head (no credentials kept)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: target
+          persist-credentials: false
+
+      - name: Check out the agent from a trusted ref, never from the PR
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ vars.AGENT_REF || 'code-reviewer' }}
+          path: agent
+          sparse-checkout: code_review_agent
+          persist-credentials: false
+
+      - name: Install agent and project dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install -q -r agent/code_review_agent/requirements.txt
+          if [ -f target/requirements.txt ]; then "$RUNNER_TEMP/venv/bin/pip" install -q -r target/requirements.txt; fi
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
+      - name: Baseline lint and tests (deterministic, no secrets)
+        working-directory: target
+        run: |
+          mkdir -p "$REPORTS"
+          python -m ruff check --no-cache --output-format json --exit-zero . > "$REPORTS/lint.json"
+          python -m pytest -q -p no:cacheprovider --junitxml "$REPORTS/junit.xml" || true
+
+      - name: Run agent (review, safe fixes, validation)
+        env:
+          PYTHONPATH: ${{ github.workspace }}/agent
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_PRICE_IN_PER_MTOK: ${{ vars.LLM_PRICE_IN_PER_MTOK }}
+          LLM_PRICE_OUT_PER_MTOK: ${{ vars.LLM_PRICE_OUT_PER_MTOK }}
+        run: >-
+          python -m code_review_agent.agent
+          --repo target --base "$BASE_SHA" --head "$HEAD_SHA"
+          --lint "$REPORTS/lint.json" --junit "$REPORTS/junit.xml"
+          --out agent-out
+
+      - name: Upload agent output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-out
+          path: agent-out/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    needs: review
+    if: always() && (needs.review.result == 'success' || needs.review.result == 'failure')
+    # GitHub-hosted: the write token never reaches the VPS or the LLM process.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_REF: ${{ github.head_ref }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: target
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ vars.AGENT_REF || 'code-reviewer' }}
+          path: agent
+          sparse-checkout: code_review_agent
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: agent-out
+          path: agent-out
+
+      - name: Comment and open draft fix PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONPATH: ${{ github.workspace }}/agent
+        run: |
+          pip install -q pyyaml
+          python -m code_review_agent.publish --repo target --out agent-out \
+            --pr "$PR_NUMBER" --head-ref "$HEAD_REF" --head-sha "$HEAD_SHA"
