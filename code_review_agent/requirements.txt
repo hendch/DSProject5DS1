@@ -1,0 +1,5 @@
+openai>=1.40
+pyyaml>=6.0
+jsonschema>=4.20
+ruff>=0.6
+pytest>=8.0

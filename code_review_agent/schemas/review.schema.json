@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "submit_review arguments",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "findings"],
+  "properties": {
+    "summary": {"type": "string", "maxLength": 1500},
+    "findings": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["category", "severity", "file", "line", "evidence", "explanation", "confidence"],
+        "properties": {
+          "category": {
+            "enum": ["leakage", "split", "reproducibility", "evaluation", "bug", "style", "security", "injection", "other"]
+          },
+          "severity": {"enum": ["high", "medium", "low"]},
+          "file": {"type": "string", "maxLength": 300},
+          "line": {"type": "integer", "minimum": 0},
+          "evidence": {"type": "string", "maxLength": 600},
+          "explanation": {"type": "string", "maxLength": 1200},
+          "confidence": {"enum": ["high", "medium", "low"]},
+          "suggested_action": {"type": "string", "maxLength": 800},
+          "rule_ref": {"type": "string", "maxLength": 300}
+        }
+      }
+    }
+  }
+}

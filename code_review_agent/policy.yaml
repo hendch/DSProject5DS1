@@ -1,0 +1,58 @@
+# Hard limits for the Code Review and Minimal Fix Agent.
+# Enforced in code (tools.py, fixer.py, guard.py, publish.py). The LLM never sees
+# this file as something it can change, and the prompt cannot override it.
+
+# Lint rules the agent may fix automatically. Only ruff "safe" fixes are applied.
+allowed_ruff_rules: [F401, I001, W291, W292, W293]
+
+# Run `ruff format` on fixed files. Off by default: it can produce large diffs.
+format_files: false
+
+# Files the fixer never touches, even if the PR changed them.
+skip_files:
+  - "**/__init__.py"        # "unused" imports there are often re-exports
+
+# Any change to these paths is rejected by the guard.
+protected_paths:
+  - "requirements*.txt"
+  - "**/requirements*.txt"
+  - "pyproject.toml"
+  - "**/pyproject.toml"
+  - "setup.cfg"
+  - "setup.py"
+  - "**/*.lock"
+  - "configs/**"
+  - "**/params.yaml"
+  - "**/dvc.yaml"
+  - ".github/**"
+  - ".review/**"
+  - "code_review_agent/**"
+
+# Files the LLM may not read.
+unreadable_paths:
+  - ".git/**"
+  - "**/.env"
+  - "**/.env.*"
+  - "**/*.pem"
+  - "**/*.key"
+  - "**/id_rsa*"
+  - "**/secrets*"
+
+limits:
+  max_changed_lines: 60
+  max_tool_calls: 8
+  max_llm_turns: 10
+  max_llm_tokens: 60000
+  max_read_lines: 300
+  max_diff_chars: 60000
+  repair_attempts: 1
+  command_timeout_s: 600
+
+# Checks that must pass after fixes. {python} is the agent's interpreter.
+validation_commands:
+  - "{python} -m ruff check --isolated --select E9,F63,F7,F82,F401 ."
+  - "{python} -m pytest -q -p no:cacheprovider"
+
+# The publish job refuses to push anywhere else.
+push_ref_prefix: "refs/heads/bot/minimal-fix/"
+branch_prefix: "bot/minimal-fix/"
