@@ -4,6 +4,7 @@ __pycache__/
 pgdata/
 venv/
 .terraform/
+outbox/
 *.tfstate*
 .terraform.lock.hcl
 *.egg-info/
