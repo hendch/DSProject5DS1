@@ -15,12 +15,12 @@ concurrency:
 
 jobs:
   review:
-    # Same-repo PRs only (fork code never reaches the VPS) and never the agent's own branches.
+    # Same-repo PRs only (forks get no secrets) and never the agent's own branches.
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       !startsWith(github.head_ref, 'bot/') &&
       github.actor != 'github-actions[bot]'
-    runs-on: [self-hosted, linux, code-review-agent]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
@@ -52,6 +52,9 @@ jobs:
           if [ -f target/requirements.txt ]; then "$RUNNER_TEMP/venv/bin/pip" install -q -r target/requirements.txt; fi
           echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
 
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
       - name: Baseline lint and tests (deterministic, no secrets)
         working-directory: target
         run: |
@@ -64,11 +67,11 @@ jobs:
       - name: Run agent (review, safe fixes, validation)
         env:
           PYTHONPATH: ${{ github.workspace }}/agent
-          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
-          LLM_MODEL: ${{ vars.LLM_MODEL }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_PRICE_IN_PER_MTOK: ${{ vars.LLM_PRICE_IN_PER_MTOK }}
-          LLM_PRICE_OUT_PER_MTOK: ${{ vars.LLM_PRICE_OUT_PER_MTOK }}
+          # Subscription token from `claude setup-token`. Only this step sees it, and
+          # shell.py strips it before running ruff/pytest on the PR's code.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          LLM_BACKEND: claude-cli
+          LLM_MODEL: ${{ vars.LLM_MODEL || 'claude-haiku-5-5' }}
         run: >-
           python -m code_review_agent.agent
           --repo target --base "$BASE_SHA" --head "$HEAD_SHA"
@@ -87,7 +90,7 @@ jobs:
   publish:
     needs: review
     if: always() && (needs.review.result == 'success' || needs.review.result == 'failure')
-    # GitHub-hosted: the write token never reaches the VPS or the LLM process.
+    # Separate job: the write token never shares a machine with the LLM process or PR code.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

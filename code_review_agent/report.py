@@ -99,6 +99,8 @@ def render_markdown(report: dict) -> str:
 
     llm = report["llm"]
     cost = f", ~${llm['cost_usd']}" if llm["cost_usd"] is not None else ""
+    if "api_equivalent_usd" in llm["usage"]:
+        cost = f", subscription (API-equivalent ~${llm['usage']['api_equivalent_usd']:.4f})"
     lines += [
         "",
         f"<sub>Model `{report['model']}` · {llm['tool_calls']} tool calls · "

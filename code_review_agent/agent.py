@@ -19,7 +19,7 @@ from pathlib import Path
 from .context import build_context
 from .fixer import apply_fixes, group_requests
 from .guard import check_worktree, untracked_files
-from .llm import LLMConfig, Outcome, run_review
+from .llm import DEFAULT_CLI_MODEL, LLMConfig, Outcome, run_review, run_review_cli
 from .policy import load_policy
 from .report import FAILED_STATUSES, build_report, render_markdown
 from .shell import git
@@ -73,10 +73,14 @@ def main(argv: list[str] | None = None) -> int:
         outcome = scripted_review(toolbox, args.review_json)
     else:
         try:
-            cfg = LLMConfig.from_env()
-            model = cfg.model
-            outcome = run_review(ctx, toolbox, policy, cfg)
-        except Exception as exc:  # network, auth, provider errors
+            if os.environ.get("LLM_BACKEND", "claude-cli") == "claude-cli":
+                model = os.environ.get("LLM_MODEL") or DEFAULT_CLI_MODEL
+                outcome = run_review_cli(ctx, toolbox, policy, model)
+            else:
+                cfg = LLMConfig.from_env()
+                model = cfg.model
+                outcome = run_review(ctx, toolbox, policy, cfg)
+        except Exception as exc:  # network, auth, provider, missing CLI
             outcome = Outcome(review=None, stop_reason=f"llm_error: {type(exc).__name__}: {str(exc)[:300]}")
 
     # 2. Deterministic repair, one attempt.

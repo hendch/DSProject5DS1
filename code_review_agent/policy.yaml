@@ -48,9 +48,11 @@ limits:
   repair_attempts: 1
   command_timeout_s: 600
 
-# Checks that must pass after fixes. {python} is the agent's interpreter.
+# Checks that must pass after fixes: "nothing broke" (syntax errors, undefined names,
+# tests), not "no lint left". Lint the agent chose not to fix must not fail validation.
+# {python} is the agent's interpreter.
 validation_commands:
-  - "{python} -m ruff check --isolated --no-cache --select E9,F63,F7,F82,F401 ."
+  - "{python} -m ruff check --isolated --no-cache --select E9,F63,F7,F82 ."
   - "{python} -m pytest -q -p no:cacheprovider"
 
 # The publish job refuses to push anywhere else.
