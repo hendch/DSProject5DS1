@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guardrail Playground</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1c1f24; --muted: #646b75; --line: #e2e5ea;
+    --accent: #3b5bdb; --accent-ink: #ffffff;
+    --ok: #2b8a3e; --ok-bg: #e6f4ea; --warn: #b35c00; --warn-bg: #fff3e0;
+    --bad: #c92a2a; --bad-bg: #fdecec; --idle: #6b7280; --idle-bg: #eef0f3;
+    --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111316; --panel: #1a1d22; --ink: #e7e9ed; --muted: #9aa1ab; --line: #2c3138;
+      --accent: #6c8cff; --accent-ink: #0b0d10;
+      --ok: #69db7c; --ok-bg: #1d3324; --warn: #ffa94d; --warn-bg: #3a2a15;
+      --bad: #ff8787; --bad-bg: #3b1d1f; --idle: #9aa1ab; --idle-bg: #262a30;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line);
+           padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; }
+  .chips, .toggles, .actor { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .chip { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--idle-bg); color: var(--idle); }
+  .chip.up { background: var(--ok-bg); color: var(--ok); }
+  .chip.down { background: var(--bad-bg); color: var(--bad); }
+  .chip.warn { background: var(--warn-bg); color: var(--warn); }
+  label.switch { display: flex; gap: 6px; align-items: center; font-size: 13px; cursor: pointer; }
+  select, input, textarea, button { font: inherit; color: inherit; }
+  select, input, textarea { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+  textarea { width: 100%; font-family: var(--mono); font-size: 12px; }
+  button { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button.good { color: var(--ok); border-color: var(--ok); }
+  button.bad { color: var(--bad); border-color: var(--bad); }
+  button.link { border: none; background: none; color: var(--accent); padding: 0; }
+  main { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 16px; padding: 16px; max-width: 1500px; margin: 0 auto; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+  section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; }
+  .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 1200px) { .two { grid-template-columns: 1fr; } }
+  .scenario { border-top: 1px solid var(--line); padding: 10px 0; }
+  .scenario:first-of-type { border-top: none; padding-top: 0; }
+  .scenario b { display: block; }
+  .scenario p { margin: 4px 0; color: var(--muted); font-size: 13px; }
+  .scenario .expect { color: var(--ink); font-size: 12px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+  .card.flash { animation: flash 2s ease-out; }
+  @keyframes flash { from { box-shadow: 0 0 0 3px var(--accent); } to { box-shadow: 0 0 0 0 transparent; } }
+  .badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 99px; }
+  .approved { background: var(--ok-bg); color: var(--ok); }
+  .pending { background: var(--warn-bg); color: var(--warn); }
+  .rejected { background: var(--bad-bg); color: var(--bad); }
+  .expired { background: var(--idle-bg); color: var(--idle); }
+  .lvl-low { color: var(--ok); } .lvl-medium { color: var(--warn); } .lvl-high { color: var(--bad); font-weight: 600; }
+  .muted { color: var(--muted); } .small { font-size: 12px; }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .reason { margin: 6px 0; }
+  .llm { margin: 6px 0; padding: 6px 8px; border-left: 3px solid var(--accent); background: var(--bg); font-size: 13px; }
+  .trace { margin-top: 8px; padding: 8px; background: var(--bg); border-radius: 6px; font-size: 13px; }
+  .trace li { margin: 2px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  tr.broken td { background: var(--bad-bg); color: var(--bad); }
+  tr.from-guardrail td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+  .scroll { max-height: 460px; overflow: auto; }
+  .banner { padding: 8px 10px; border-radius: 6px; margin-bottom: 8px; font-weight: 600; }
+  .banner.ok { background: var(--ok-bg); color: var(--ok); } .banner.bad { background: var(--bad-bg); color: var(--bad); }
+  #toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 10; max-width: min(420px, calc(100vw - 32px)); }
+  .toast { padding: 8px 12px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 4px 16px rgba(0,0,0,.15); }
+  .toast.err { border-color: var(--bad); } .toast.ok { border-color: var(--ok); }
+  details summary { cursor: pointer; color: var(--accent); }
+  .empty { color: var(--muted); padding: 12px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Guardrail Playground</h1>
+  <div class="chips" id="chips"></div>
+  <div class="toggles">
+    <label class="switch"><input type="checkbox" id="t-opa"> Simulate OPA outage</label>
+    <label class="switch"><input type="checkbox" id="t-llm"> LLM judge</label>
+  </div>
+  <div class="actor">Acting as
+    <select id="actor"><option>sami</option><option selected>ines</option><option>karim</option></select>
+    <input id="actor-custom" placeholder="or type a name" size="12">
+  </div>
+</header>
+
+<main>
+  <div class="col">
+    <section>
+      <h2>1 · Send a proposal</h2>
+      <div id="scenarios"></div>
+    </section>
+    <section>
+      <details>
+        <summary>Custom proposal</summary>
+        <div class="row" style="margin:10px 0">
+          <select id="c-agent"><option>dependency_resolver</option><option>diagnostic_rca</option><option>merge_assistant</option><option>orchestrator</option></select>
+          <select id="c-action"><option>propose_fix</option><option>rank_causes</option><option>flag_conflict</option></select>
+          <select id="c-env"><option>dev</option><option>staging</option><option>prod</option></select>
+          <select id="c-blast"><option>low</option><option>medium</option><option>high</option></select>
+        </div>
+        <textarea id="c-payload" rows="8">{
+  "triggered_by": "sami",
+  "cycle": ["aws_security_group.web", "aws_instance.web"],
+  "proposed_diff": "Open port 22 to 0.0.0.0/0 on the web security group."
+}</textarea>
+        <div class="row" style="margin-top:8px"><button class="primary" id="c-send">Send</button>
+          <span class="muted small">Payload text is scanned for risk keywords.</span></div>
+      </details>
+    </section>
+  </div>
+
+  <div class="col">
+    <section>
+      <h2>2 · Guardrail decisions <span class="muted" style="text-transform:none;letter-spacing:0">(newest first)</span></h2>
+      <div id="approvals" class="scroll" style="max-height:620px"></div>
+    </section>
+    <div class="two">
+      <section>
+        <h2>3 · Event stream <span class="muted" style="text-transform:none;letter-spacing:0">what the Orchestrator sees</span></h2>
+        <div class="scroll"><table><thead><tr><th>agent</th><th>type</th><th>env / risk</th><th>result</th></tr></thead>
+          <tbody id="events"></tbody></table></div>
+      </section>
+      <section>
+        <h2>4 · Audit log</h2>
+        <div id="audit-banner"></div>
+        <div class="row" style="margin-bottom:8px">
+          <button class="bad" id="tamper">Tamper (as DB admin)</button>
+          <button id="untamper">Undo tamper</button>
+        </div>
+        <div class="scroll"><table><thead><tr><th>#</th><th>agent</th><th>decision</th><th>hash (prev → this)</th></tr></thead>
+          <tbody id="audit"></tbody></table></div>
+      </section>
+    </div>
+  </div>
+</main>
+<div id="toasts"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const time = (t) => t ? new Date(t).toLocaleTimeString() : "";
+const actor = () => $("actor-custom").value.trim() || $("actor").value;
+const openTraces = new Set();
+let flashId = null;
+
+async function api(method, path, body) {
+  const res = await fetch(path, { method, headers: { "Content-Type": "application/json" },
+                                  body: body ? JSON.stringify(body) : undefined });
+  let data = null;
+  try { data = await res.json(); } catch { /* empty body */ }
+  return { ok: res.ok, status: res.status, data };
+}
+
+function toast(text, kind = "") {
+  const el = document.createElement("div");
+  el.className = `toast ${kind}`;
+  el.textContent = text;
+  $("toasts").append(el);
+  setTimeout(() => el.remove(), 6000);
+}
+
+async function loadScenarios() {
+  const { data } = await api("GET", "/playground/scenarios");
+  $("scenarios").innerHTML = data.map((s) => `
+    <div class="scenario">
+      <b>${esc(s.title)}</b>
+      <p>${esc(s.story)}</p>
+      <p class="expect">Expected: ${esc(s.expect)}</p>
+      <button class="primary" data-scenario="${esc(s.id)}">Send</button>
+    </div>`).join("");
+}
+
+$("scenarios").addEventListener("click", async (e) => {
+  const id = e.target.dataset.scenario;
+  if (!id) return;
+  const r = await api("POST", `/playground/publish/${id}`);
+  if (r.ok) { flashId = r.data.event_id; toast("Proposal published to pipeline_events", "ok"); refresh(); }
+  else toast(`Error ${r.status}: ${r.data?.detail}`, "err");
+});
+
+$("c-send").addEventListener("click", async () => {
+  let payload;
+  try { payload = JSON.parse($("c-payload").value); } catch (err) { return toast(`Payload is not valid JSON: ${err.message}`, "err"); }
+  const r = await api("POST", "/playground/publish-custom", {
+    agent_name: $("c-agent").value, action_type: $("c-action").value,
+    environment: $("c-env").value, blast_radius: $("c-blast").value, payload });
+  if (r.ok) { flashId = r.data.event_id; toast("Custom proposal published", "ok"); refresh(); }
+  else toast(`Error ${r.status}: ${JSON.stringify(r.data?.detail)}`, "err");
+});
+
+function riskLine(a) {
+  const raised = a.risk !== a.blast_radius;
+  return `declared <span class="lvl-${esc(a.blast_radius)}">${esc(a.blast_radius)}</span>
+          → risk <span class="lvl-${esc(a.risk)}">${esc(a.risk)}</span>${raised ? " <span class='muted'>(raised by guardrail)</span>" : ""}`;
+}
+
+function renderTrace(rows) {
+  if (!rows.length) return "<div class='trace muted'>No trace yet.</div>";
+  const first = rows[0].reasoning_trace;
+  const signals = (first.signals || []).map((s) =>
+    `<li><span class="lvl-${esc(s.level)}">${esc(s.level)}</span> · ${esc(s.signal)}${s.evidence ? ` <span class="mono">“${esc(s.evidence)}”</span>` : ""}</li>`).join("");
+  const p = first.policy || {};
+  const llm = first.llm_judge;
+  const steps = rows.map((r) => `<li>${time(r.created_at)} · ${esc(r.decision)}</li>`).join("");
+  return `<div class="trace">
+    <b>Layer 2 · risk signals</b><ul>${signals}</ul>
+    <b>Layer 1 · OPA policy</b><div class="mono">${esc(p.decision)} · ${esc(p.rule)}${p.policy_verdict ? ` (policy said ${esc(p.policy_verdict.decision)} / ${esc(p.policy_verdict.rule)})` : ""}</div>
+    <b>Layer 3 · LLM judge</b><div>${llm ? `${llm.risky ? "flagged risky" : "found no issue"} (${esc(llm.model)}): ${esc(llm.summary)}` : "<span class='muted'>not consulted, disabled or unavailable — the policy decision stands</span>"}</div>
+    <b>Audit trail for this action</b><ul>${steps}</ul>
+  </div>`;
+}
+
+async function renderApprovals() {
+  const { data } = await api("GET", "/playground/approvals");
+  if (!data?.length) { $("approvals").innerHTML = "<div class='empty'>No decisions yet. Send a proposal on the left.</div>"; return; }
+  const traces = {};
+  await Promise.all(data.filter((a) => openTraces.has(a.id)).map(async (a) => {
+    traces[a.id] = (await api("GET", `/playground/trace/${a.action_id}`)).data || [];
+  }));
+  $("approvals").innerHTML = data.map((a) => {
+    const votes = a.approved_by?.length ? `approved by ${esc(a.approved_by.join(", "))} · ` : "";
+    const pending = a.status === "pending";
+    return `<div class="card ${a.action_id === flashId ? "flash" : ""}" data-id="${esc(a.id)}">
+      <div class="row">
+        <span class="badge ${esc(a.status)}">${esc(a.status)}</span>
+        <b>${esc(a.agent_name)}</b><span class="muted">${esc(a.action_type)}</span>
+        <span class="chip">${esc(a.environment)}</span>
+        <span class="muted small" style="margin-left:auto">${time(a.created_at)}</span>
+      </div>
+      <div class="small" style="margin-top:4px">${riskLine(a)}${a.requested_by ? ` · triggered by <b>${esc(a.requested_by)}</b>` : ""}</div>
+      <div class="reason"><span class="mono">${esc(a.policy_rule)}</span> — ${esc(a.reason)}</div>
+      ${a.llm_summary ? `<div class="llm">🤖 ${esc(a.llm_summary)}</div>` : ""}
+      <div class="row small">
+        <span class="muted">${votes}${pending ? `needs ${a.required_approvals} approval(s) · expires ${time(a.expires_at)}` : ""}</span>
+      </div>
+      <div class="row" style="margin-top:6px">
+        ${pending ? `<button class="good" data-act="approve">Approve as ${esc(actor())}</button>
+                     <button class="bad" data-act="reject">Reject as ${esc(actor())}</button>
+                     <button class="link" data-act="expire">expire now</button>` : ""}
+        <button class="link" data-act="trace" data-action="${esc(a.action_id)}">${openTraces.has(a.id) ? "hide why" : "why?"}</button>
+      </div>
+      ${openTraces.has(a.id) ? renderTrace(traces[a.id] || []) : ""}
+    </div>`;
+  }).join("");
+  if (flashId && data.some((a) => a.action_id === flashId)) flashId = null;
+}
+
+$("approvals").addEventListener("click", async (e) => {
+  const act = e.target.dataset.act;
+  if (!act) return;
+  const id = e.target.closest(".card").dataset.id;
+  if (act === "trace") {
+    openTraces.has(id) ? openTraces.delete(id) : openTraces.add(id);
+    return renderApprovals();
+  }
+  if (act === "expire") {
+    const r = await api("POST", `/playground/expire/${id}`);
+    toast(r.ok ? "Clock fast-forwarded: approval expired" : `Error ${r.status}`, r.ok ? "ok" : "err");
+    return refresh();
+  }
+  const who = actor();
+  const r = await api("POST", `/${act}/${id}`, { decided_by: who });
+  if (r.ok) toast(`${r.status} · ${who}: ${r.data.status}${r.data.status === "pending" ? ` (${r.data.approvals.length}/${r.data.required_approvals} approvals)` : ""}`, "ok");
+  else toast(`${r.status} · ${who}: ${typeof r.data?.detail === "string" ? r.data.detail : JSON.stringify(r.data?.detail)}`, "err");
+  refresh();
+});
+
+async function renderEvents() {
+  const { data } = await api("GET", "/playground/events");
+  $("events").innerHTML = (data || []).map((m) => {
+    if (!m.event) return `<tr class="broken"><td colspan="4" class="mono">garbage: ${esc(m.raw)}</td></tr>`;
+    const e = m.event, p = e.payload || {};
+    const result = e.agent_name === "guardrail"
+      ? `<span class="badge ${esc(p.decision)}">${esc(p.decision)}</span> ${esc(p.rule || p.reason || "")}${p.decided_by ? ` · ${esc(p.decided_by)}` : ""}`
+      : "<span class='muted'>proposal</span>";
+    return `<tr class="${e.agent_name === "guardrail" ? "from-guardrail" : ""}">
+      <td>${esc(e.agent_name)}</td><td class="mono">${esc(e.action_type)}</td>
+      <td>${esc(e.environment)} / <span class="lvl-${esc(e.blast_radius)}">${esc(e.blast_radius)}</span></td><td>${result}</td></tr>`;
+  }).join("") || "<tr><td colspan='4' class='empty'>Stream is empty.</td></tr>";
+}
+
+async function renderAudit() {
+  const { data } = await api("GET", "/playground/audit");
+  if (!data) return;
+  const broken = data.rows.filter((r) => r.problem);
+  $("audit-banner").innerHTML = data.intact
+    ? `<div class="banner ok">✓ Hash chain intact (${data.rows.length} most recent rows shown)</div>`
+    : `<div class="banner bad">✗ Tampering detected at row ${broken.map((r) => r.id).join(", ")}: ${esc(broken[0]?.problem)}</div>`;
+  $("tamper").disabled = !!data.tampered;
+  $("untamper").disabled = !data.tampered;
+  $("audit").innerHTML = data.rows.map((r) => `
+    <tr class="${r.problem ? "broken" : ""}">
+      <td>${r.id}</td><td>${esc(r.agent_name)}</td>
+      <td>${esc(r.decision)}${r.problem ? `<br><b>${esc(r.problem)}</b>` : ""}</td>
+      <td class="mono">${esc((r.prev_hash || "genesis").slice(0, 8))} → ${esc(r.row_hash.slice(0, 8))}</td>
+    </tr>`).join("") || "<tr><td colspan='4' class='empty'>No rows yet.</td></tr>";
+}
+
+$("tamper").addEventListener("click", async () => {
+  const r = await api("POST", "/playground/tamper");
+  if (r.ok) toast(`Row ${r.data.id} rewritten: “${r.data.original}” → “${r.data.forged}”`, "err");
+  else toast(`${r.status}: ${r.data?.detail}`, "err");
+  renderAudit();
+});
+$("untamper").addEventListener("click", async () => {
+  const r = await api("POST", "/playground/untamper");
+  toast(r.ok ? "Original value restored" : `${r.status}: ${r.data?.detail}`, r.ok ? "ok" : "err");
+  renderAudit();
+});
+
+function renderStatus(s) {
+  const chip = (label, up, warnText, title = "") => `<span class="chip ${up === "warn" ? "warn" : up ? "up" : "down"}" title="${esc(title)}">${esc(label)}${warnText ? ` · ${esc(warnText)}` : ""}</span>`;
+  $("chips").innerHTML = [
+    chip("Postgres", s.postgres), chip("Redis", s.redis),
+    chip("OPA", s.opa_outage ? "warn" : s.opa, s.opa_outage ? "outage simulated" : ""),
+    chip(`LLM ${s.llm_label}`, s.llm_ok ? true : "warn", s.llm_ok ? "" : "not reachable", s.llm_error),
+    chip("Guardrail loop", s.consumer),
+  ].join("");
+  $("t-opa").checked = s.opa_outage;
+  $("t-llm").checked = s.llm_enabled;
+}
+async function refreshStatus() { const r = await api("GET", "/playground/status"); if (r.ok) renderStatus(r.data); }
+for (const [id, key] of [["t-opa", "opa_outage"], ["t-llm", "llm"]]) {
+  $(id).addEventListener("change", async (e) => {
+    const r = await api("POST", "/playground/toggles", { [key]: e.target.checked });
+    if (r.ok) renderStatus(r.data);
+  });
+}
+$("actor").addEventListener("change", () => { $("actor-custom").value = ""; renderApprovals(); });
+$("actor-custom").addEventListener("input", renderApprovals);
+
+let busy = false;
+async function refresh() {
+  if (busy) return;
+  busy = true;
+  try { await Promise.all([renderApprovals(), renderEvents(), renderAudit()]); }
+  finally { busy = false; }
+}
+loadScenarios();
+refresh(); refreshStatus();
+setInterval(refresh, 1500);
+setInterval(refreshStatus, 5000);
+</script>
+</body>
+</html>

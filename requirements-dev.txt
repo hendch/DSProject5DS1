@@ -1,0 +1,3 @@
+-r requirements.txt
+fakeredis==2.39.0  # in-memory Redis for tests
+pgserver==0.1.4    # throwaway PostgreSQL 16 for tests, no Docker needed

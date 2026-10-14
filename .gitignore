@@ -8,3 +8,6 @@ outbox/
 *.tfstate*
 .terraform.lock.hcl
 *.egg-info/
+
+# downloaded dev tools (OPA for the guardrail playground)
+.tools/

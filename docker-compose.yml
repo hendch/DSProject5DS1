@@ -9,7 +9,9 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      # run in name order on a fresh volume: schema first, then migrations
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql
+      - ./db/migrations/002_guardrail.sql:/docker-entrypoint-initdb.d/002_guardrail.sql
 
   redis:
     image: redis:7
@@ -22,6 +24,14 @@ services:
       - "8000:8000"
     volumes:
       - chroma_data:/data
+
+  opa:  # policy engine for the guardrail agent; reloads policy files on change
+    image: openpolicyagent/opa:1.20.2
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "--watch", "/policy"]
+    ports:
+      - "8181:8181"
+    volumes:
+      - ./agents/guardrail/policy:/policy:ro
 
 volumes:
   pgdata:
