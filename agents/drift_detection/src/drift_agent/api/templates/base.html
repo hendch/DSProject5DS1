@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Drift Agent{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/vendor/phosphor/style.css">
+  <link rel="stylesheet" href="/static/app.css?v={{ v }}">
+  <script>
+    // Apply a saved theme before first paint. Storage can be unavailable; ignore errors.
+    try { const t = localStorage.getItem("drift-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/">
+        <i class="ph ph-wave-sine" aria-hidden="true"></i>
+        <span>Drift Agent</span>
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a href="/" class="{{ 'active' if active == 'overview' }}">Overview</a>
+        <a href="/approvals" class="{{ 'active' if active == 'approvals' }}">Approvals <span class="count" id="nav-pending" hidden></span></a>
+        <a href="/audit" class="{{ 'active' if active == 'audit' }}">Audit log</a>
+        <a href="/docs" target="_blank" rel="noopener">API</a>
+      </nav>
+      <div class="topbar-right">
+        <span class="chip" id="nav-model" hidden></span>
+        <span class="chip" id="nav-llm" hidden></span>
+        <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle colour theme">
+          <i class="ph ph-circle-half" aria-hidden="true"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    {% if not initialised %}
+    <section class="panel empty-state">
+      <i class="ph ph-database" aria-hidden="true"></i>
+      <h1>No model yet</h1>
+      <p>Run <code>uv run drift-agent init</code> to download the dataset and train the baseline model, then reload this page.</p>
+    </section>
+    {% else %}
+    {% block content %}{% endblock %}
+    {% endif %}
+  </main>
+
+  <div class="toast-stack" id="toasts" role="status" aria-live="polite"></div>
+  <script src="/static/vendor/chart.umd.min.js"></script>
+  <script src="/static/app.js?v={{ v }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

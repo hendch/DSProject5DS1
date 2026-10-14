@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Run {{ run_id }} · Drift Agent{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div class="left">
+    <a class="crumb" href="/"><i class="ph ph-arrow-left" aria-hidden="true"></i>Overview</a>
+    <h1 id="run-title">Run {{ run_id }}</h1>
+    <span id="run-sev"></span>
+    <span class="chip mono" id="run-model"></span>
+  </div>
+  <div class="left">
+    <a class="btn small" id="prev-run" hidden><i class="ph ph-caret-left" aria-hidden="true"></i>Previous</a>
+    <a class="btn small" id="next-run" hidden>Next<i class="ph ph-caret-right" aria-hidden="true"></i></a>
+  </div>
+</div>
+
+<section class="panel">
+  <div class="panel-body">
+    <ul class="reasons" id="reasons"><li><span class="skeleton" style="width:60%"></span></li></ul>
+  </div>
+</section>
+
+<div class="grid-run">
+  <div class="stack">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Feature drift</h2>
+        <div class="legend" aria-hidden="true">
+          <span><i class="sw" style="background:var(--chart-ref)"></i>Stable</span>
+          <span><i class="sw" style="background:var(--warn)"></i>Moderate</span>
+          <span><i class="sw" style="background:var(--crit)"></i>Significant</span>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="chart-box tall"><canvas id="features-chart" role="img" aria-label="PSI per feature"></canvas></div>
+        <p class="muted" style="margin-top:8px;font-size:12.5px">Population Stability Index per feature. Above <span id="psi-moderate">the first line</span> is a moderate shift, above <span id="psi-significant">the second</span> a significant one. Click a bar to compare distributions.</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>All statistics</h2><span class="hint">Sorted by importance-weighted drift</span></div>
+      <div class="panel-body table-wrap" style="padding-top:6px">
+        <table>
+          <thead><tr>
+            <th>Feature</th><th>Test</th><th class="num">Statistic</th><th class="num">p-value</th>
+            <th class="num" title="KS distance D or Jensen-Shannon distance">Effect</th><th class="num">PSI</th>
+            <th class="num">Importance</th><th>Status</th>
+          </tr></thead>
+          <tbody id="features-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div class="stack">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Reference vs current</h2>
+        <select id="feature-select" aria-label="Feature"></select>
+      </div>
+      <div class="panel-body">
+        <div class="chart-box short"><canvas id="dist-chart" role="img" aria-label="Distribution comparison"></canvas></div>
+        <div class="legend" style="margin-top:10px" aria-hidden="true">
+          <span><i class="sw" style="background:var(--chart-ref)"></i>Reference</span>
+          <span><i class="sw" style="background:var(--accent)"></i>This batch</span>
+        </div>
+        <p class="muted" id="dist-note" style="margin-top:6px;font-size:12.5px"></p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Model output and accuracy</h2></div>
+      <div class="panel-body"><div class="metric-grid" id="model-metrics"></div></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Data quality</h2></div>
+      <div class="panel-body" id="quality"></div>
+    </section>
+  </div>
+</div>
+
+<section class="panel" aria-labelledby="report-title">
+  <div class="panel-head"><h2 id="report-title">Agent incident report</h2><span class="hint" id="report-source"></span></div>
+  <div class="panel-body" id="report"></div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>window.RUN_ID = {{ run_id }};</script>
+<script src="/static/run.js?v={{ v }}"></script>
+{% endblock %}
