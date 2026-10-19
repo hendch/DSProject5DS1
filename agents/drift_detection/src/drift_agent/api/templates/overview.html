@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Overview · Drift Agent{% endblock %}
+{% block content %}
+<section class="panel controlbar" aria-label="Simulation controls">
+  <div class="group">
+    <span class="label" id="scenario-label">Scenario</span>
+    <div class="seg" id="scenario-seg" role="group" aria-labelledby="scenario-label"></div>
+    <button class="btn small" id="reset-btn" type="button"><i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i>Restart</button>
+  </div>
+  <p class="scenario-note" id="scenario-note"></p>
+  <div class="spacer"></div>
+  <div class="group">
+    <label class="switch" title="Generate and check a new batch automatically">
+      <input type="checkbox" id="live-toggle"><span aria-hidden="true"></span>Live
+    </label>
+    <button class="btn primary" id="step-btn" type="button"><i class="ph ph-play" aria-hidden="true"></i>Next batch</button>
+  </div>
+</section>
+
+<section class="panel stats" aria-label="Current state">
+  <div class="stat">
+    <span class="k">Latest check</span>
+    <span class="v" id="st-sev"><span class="skeleton" style="width:90px;height:24px"></span></span>
+    <span class="s" id="st-sev-sub"></span>
+  </div>
+  <div class="stat">
+    <span class="k">Production batches</span>
+    <span class="v"><span class="num" id="st-batch">-</span></span>
+    <span class="s" id="st-batch-sub"></span>
+  </div>
+  <div class="stat">
+    <span class="k">Current model</span>
+    <span class="v"><span class="mono" id="st-model">-</span></span>
+    <span class="s" id="st-model-sub"></span>
+  </div>
+  <div class="stat">
+    <span class="k">Waiting for approval</span>
+    <span class="v"><span class="num" id="st-pending">-</span></span>
+    <span class="s"><a href="/approvals">Review decisions</a></span>
+  </div>
+</section>
+
+<div class="grid-main">
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Drift over time</h2>
+      <div class="legend" aria-hidden="true">
+        <span><i class="sw" style="background:var(--ok)"></i>OK</span>
+        <span><i class="sw" style="background:var(--warn)"></i>Warning</span>
+        <span><i class="sw" style="background:var(--alert)"></i>Alert</span>
+        <span><i class="sw" style="background:var(--crit)"></i>Critical</span>
+        <span><i class="ln" style="border-color:var(--accent)"></i>ROC-AUC</span>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="chart-box" id="timeline-box"><canvas id="timeline" aria-label="Drift score and ROC-AUC per batch" role="img"></canvas></div>
+      <p class="muted" style="margin-top:8px;font-size:12.5px">Bars: importance-weighted data drift score per batch. Line: ROC-AUC once true labels arrive (<span id="label-delay">a few</span> batches late). Click a bar to open the run.</p>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="incident-title">
+    <div class="panel-head"><h2 id="incident-title">Latest incident</h2><span class="hint" id="incident-when"></span></div>
+    <div class="panel-body" id="incident"></div>
+  </section>
+</div>
+
+<section class="panel">
+  <div class="panel-head"><h2>Runs</h2><span class="hint" id="runs-hint"></span></div>
+  <div class="panel-body table-wrap" style="padding-top:6px">
+    <table>
+      <thead><tr>
+        <th>Batch</th><th>Severity</th><th class="num">Drift score</th><th>Drifted features</th><th>Model</th><th>Agent</th><th>Time</th>
+      </tr></thead>
+      <tbody id="runs-body"></tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/overview.js?v={{ v }}"></script>{% endblock %}

@@ -1,0 +1,204 @@
+# Drift Detection Agent configuration.
+# Every threshold, parameter and default the system uses lives here so it can be
+# tuned and explained. Secrets (the xAI key) live in .env, never here.
+
+data:
+  # Where the dataset comes from (a zip containing another zip containing the CSV).
+  source_url: https://archive.ics.uci.edu/static/public/222/bank+marketing.zip
+  archive_member: bank.zip
+  csv_member: bank-full.csv
+  csv_separator: ";"
+  download_timeout_seconds: 60
+  # Plain-language description, used in the agent's prompt.
+  description: a bank's model predicting whether a client subscribes to a term deposit after a phone call
+  target: y
+  positive_label: "yes"
+  # `duration` is the length of the sales call. It is only known after the call
+  # ends, so it leaks the outcome into the inputs. We drop it.
+  drop_columns: [duration]
+  numeric: [age, balance, day, campaign, pdays, previous]
+  categorical: [job, marital, education, default, housing, loan, contact, month, poutcome]
+  # Shares of the shuffled dataset: model training / reference snapshot / production pool.
+  train_fraction: 0.45
+  reference_fraction: 0.20
+  seed: 42
+
+model:
+  # HistGradientBoostingClassifier settings.
+  max_iter: 300
+  learning_rate: 0.06
+  max_leaf_nodes: 31
+  l2_regularization: 1.0
+  early_stopping_fraction: 0.15
+  # Share of the training data used to pick the F1-optimal decision threshold.
+  threshold_tuning_fraction: 0.2
+  # Permutation importance: rows sampled and shuffles per feature.
+  importance_sample: 4000
+  importance_repeats: 5
+
+simulation:
+  batch_size: 1000
+  # True outcomes for batch t become available at batch t + label_delay.
+  label_delay: 2
+  # Batch index (1-based) at which the scenario's drift starts.
+  drift_start: 8
+  # Chance that a harmless operational event is logged with a batch (noise for the agent).
+  noise_event_probability: 0.35
+  noise_events:
+    - [scheduler, Nightly backup of the feature store completed]
+    - [platform, Scoring API autoscaled from 2 to 3 replicas]
+    - [bi, Marketing dashboard refreshed]
+    - [platform, TLS certificate renewed on the scoring gateway]
+    - [crm, Weekly CRM export finished]
+    - [platform, Log retention policy applied (30 days)]
+  scenarios:
+    clean:
+      label: Clean
+      description: No drift. Measures false alarms.
+      expected_drift_type: none
+      expected_actions: [no_action]
+    gradual:
+      label: Gradual shift
+      description: "Real-world change: the customer base slowly gets older."
+      expected_drift_type: covariate
+      expected_actions: [monitor, retrain_challenger]
+      feature: age
+      # Sampling tilt towards higher values of `feature`, added each batch, capped.
+      strength_per_batch: 0.18
+      max_strength: 1.4
+    pipeline_bug:
+      label: Pipeline bug
+      description: "Broken upstream job: balance x100, missing job values, unseen contact channel."
+      expected_drift_type: pipeline_bug
+      expected_actions: [investigate_upstream]
+      scale_feature: balance
+      scale_factor: 100
+      missing_feature: job
+      missing_rate: 0.30
+      unseen_feature: contact
+      unseen_value: whatsapp
+      unseen_rate: 0.15
+      event: [etl, Deployed customer-features ETL job v2.3 (new source connector for the core banking system)]
+    concept:
+      label: Concept drift
+      description: "Concept drift: inputs unchanged, but what drives subscriptions changes for clients with a housing loan."
+      expected_drift_type: concept
+      expected_actions: [retrain_challenger]
+      segment_feature: housing
+      segment_value: "yes"
+      # Inside the segment, subscribing now depends on this feature being above a percentile.
+      driver_feature: balance
+      driver_percentile: 80
+      rate_if_driver_high: 0.55
+      rate_if_driver_low: 0.02
+      # Share of segment rows following the new rule: start, growth per batch (max 1).
+      start_share: 0.8
+      share_step: 0.1
+      event: [marketing, New campaign script rolled out to the call centre]
+
+detection:
+  numeric:
+    ks_pvalue: 0.05       # KS test significance level
+    ks_d: 0.10            # minimum KS distance (effect size) to count as drift
+    psi_bins: 10          # reference deciles
+  categorical:
+    chi2_pvalue: 0.05     # chi-square significance level
+    js_distance: 0.10     # minimum Jensen-Shannon distance (effect size)
+  psi:
+    moderate: 0.10        # 0.10 - 0.25 = moderate shift
+    significant: 0.25     # > 0.25 = significant shift
+    # A PSI this large counts as significant even if the statistical test disagrees.
+    significant_alone: 0.50
+  scoring:
+    # Per-feature drift score = min(1, PSI / psi_for_full_score).
+    psi_for_full_score: 0.50
+    # Feature weight = importance_share * importance + (1 - importance_share) / n_features,
+    # so important features dominate but every feature stays visible.
+    importance_share: 0.8
+  quality:
+    missing_rate_increase: 0.05   # +5 points of missing values vs reference
+    new_category_rate: 0.01       # >1% rows with categories never seen in training
+    out_of_range_rate: 0.02       # >2% values outside the reference min/max
+  prediction:
+    psi: 0.10                     # PSI on model scores
+    positive_rate_change: 0.05    # absolute change in predicted "yes" rate
+  performance:
+    auc_drop: 0.04                # tolerated ROC-AUC drop vs the model's baseline
+    # A drop this many times the tolerance is critical at once; otherwise it must repeat.
+    immediate_multiplier: 2
+    window_batches: 2             # pool the newest N labelled batches to reduce noise
+    min_positives: 30             # skip performance check if too few positive labels
+  # Persistence rule: a moderate shift only counts if the previous batch also
+  # showed drift on that feature. Significant shifts count immediately.
+
+severity:
+  # Importance-weighted data drift score thresholds (score is in [0, 1]).
+  warning: 0.03
+  alert: 0.08
+
+agent:
+  max_steps: 8
+  # Grok must have called these before its report is accepted. If it answers early it
+  # is told what is missing (up to `required_tool_reminders` times); after that the
+  # report is kept but flagged.
+  required_tools: [get_drift_report, recent_pipeline_events, performance_history]
+  required_tool_reminders: 2
+  # The agent investigates runs at or above this level.
+  investigate_at: ALERT
+  temperature: 0.1
+  llm:
+    # Defaults; XAI_MODEL and XAI_BASE_URL in .env override them.
+    model: grok-4.3
+    base_url: https://api.x.ai/v1
+    timeout_seconds: 90
+    max_retries: 2
+  tools:
+    history_batches: 12           # drift_history default window
+    max_history_batches: 40
+    events_window: 6              # recent_pipeline_events default window (batches)
+    max_events_window: 30
+    performance_checks: 10        # performance_history default length
+    top_categories: 12            # categories shown by compare_distributions
+    max_segments: 8               # segments checked by segment_breakdown
+    min_segment_rows: 30
+    # drift_history calls a change "sudden" if one batch accounts for this share of it.
+    sudden_jump_share: 0.6
+    # segment_breakdown calls drift "concentrated" if segment PSIs spread this much.
+    concentrated_spread: 0.2
+  fallback:
+    # Rule-based investigator: event sources that point to an upstream data change.
+    upstream_sources: [etl, ingestion, data, feature-store, schema]
+    # With no accuracy evidence, input drift this large triggers a challenger.
+    retrain_score: 0.2
+
+alerts:
+  # Who gets the alert for each drift type.
+  routing:
+    pipeline_bug: data-engineering on-call
+    default: ML engineering
+
+retraining:
+  # The challenger must beat the current model by this ROC-AUC margin.
+  min_auc_gain: 0.01
+  # Most recent labelled batches held out to compare current model vs challenger.
+  holdout_batches: 2
+  # Production rows count this many times more than original training rows.
+  recent_weight: 3.0
+
+scheduler:
+  interval_seconds: 8
+
+server:
+  host: 127.0.0.1
+  port: 8000
+
+dashboard:
+  poll_interval_ms: 2500
+  psi_display_cap: 1.5            # longer PSI bars are cut off at this value
+  distribution_bins: 24
+  distribution_top_categories: 14
+  distribution_clip_percentile: 1   # histogram range ignores the outer 1% on each side
+
+evaluation:
+  seeds: 3
+  batches: 20

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Approvals · Drift Agent{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div class="left"><h1>Approvals</h1></div>
+  <p class="muted">The agent can only recommend. Promoting or rolling back a model always needs a person.</p>
+</div>
+
+<div class="grid-main">
+  <div class="stack" id="pending">
+    <section class="panel"><div class="panel-body"><div class="skeleton" style="height:120px"></div></div></section>
+  </div>
+
+  <div class="stack">
+    <section class="panel">
+      <div class="panel-head"><h2>Model versions</h2></div>
+      <div class="panel-body">
+        <div class="model-list" id="models"></div>
+        <button class="btn" id="rollback-btn" type="button" style="margin-top:12px" hidden>
+          <i class="ph ph-arrow-u-up-left" aria-hidden="true"></i>Request rollback
+        </button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<section class="panel">
+  <div class="panel-head"><h2>Decision history</h2></div>
+  <div class="panel-body table-wrap" style="padding-top:6px">
+    <table>
+      <thead><tr><th>#</th><th>Action</th><th>Status</th><th>Decided by</th><th>Detail</th><th>Batch</th><th>When</th></tr></thead>
+      <tbody id="history"></tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/approvals.js?v={{ v }}"></script>{% endblock %}

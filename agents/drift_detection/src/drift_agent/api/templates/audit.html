@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Audit log · Drift Agent{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div class="left"><h1>Audit log</h1></div>
+  <p class="muted">Every check, tool call, model message, action and human decision, newest first.</p>
+</div>
+
+<section class="panel">
+  <form class="filters" id="filters">
+    <div class="field">
+      <label for="actor">Actor</label>
+      <select id="actor">
+        <option value="">Everyone</option>
+        <option value="detector">Detector</option>
+        <option value="agent">Agent</option>
+        <option value="guardrail">Guardrail</option>
+        <option value="human">Human</option>
+        <option value="simulator">Simulator</option>
+        <option value="system">System</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="run">Run</label>
+      <input type="number" id="run" min="1" placeholder="Any" style="width:110px">
+    </div>
+    <button class="btn" type="submit"><i class="ph ph-funnel" aria-hidden="true"></i>Filter</button>
+    <span class="muted" id="count" style="align-self:center"></span>
+  </form>
+</section>
+
+<section class="panel" id="log"><div class="panel-body"><div class="skeleton" style="height:200px"></div></div></section>
+{% endblock %}
+{% block scripts %}<script src="/static/audit.js?v={{ v }}"></script>{% endblock %}
