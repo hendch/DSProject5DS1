@@ -133,11 +133,11 @@ def explain_fix(category: str, code: str, cycle: list[str]) -> tuple[str, str]:
 
 
 def publish_safely(**kwargs) -> tuple[str, str]:
-    """Try Redis + Postgres. If either is down, queue to a local outbox instead.
-    Returns (action_id, sink) where sink is "redis+db" or "outbox"."""
+    """Try the database (action + event in one transaction). If it is down, queue to a local outbox.
+    Returns (action_id, sink) where sink is "db" or "outbox"."""
     try:
-        return publish_and_log(**kwargs), "redis+db"
-    except Exception as e:  # noqa: BLE001 - redis/psycopg2 connection errors
+        return publish_and_log(**kwargs), "db"
+    except Exception as e:  # noqa: BLE001 - database connection errors
         action_id = str(uuid.uuid4())
         path = fallback.write_outbox({"local_id": action_id, "kwargs": kwargs})
         print(f"[warn] publish failed ({e}); queued locally at {path}. "

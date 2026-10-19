@@ -1,8 +1,6 @@
 -- Guardrail agent: approval workflow + tamper-evident audit log.
 -- Idempotent: safe to run more than once, on a fresh or an existing database.
--- Fresh volume: loaded automatically by docker-compose after schema.sql.
--- Existing volume / Neon:
---   docker compose exec -T postgres psql -U devops -d agents < db/migrations/002_guardrail.sql
+-- Applied with the others by:  python -m shared.migrate
 
 -- ---------------------------------------------------------------- approvals
 ALTER TABLE approvals

@@ -1,19 +1,18 @@
-"""DEV ONLY: seeds a throwaway Chroma collection so retrieval can be tested
+"""DEV ONLY: seeds a throwaway knowledge-base collection so retrieval can be tested
 before Member E's real ingestion (corpus/ingest.py) exists.
 
 Run:  python -m agents.diagnostic_rca.seed_dev_kb
-Then set CHROMA_COLLECTION=devops_kb_dev in .env (the default collection
-name in retrieval.py is devops_kb, which we leave free for Member E).
+Then set KNOWLEDGE_COLLECTION=devops_kb_dev in .env (the default collection name in
+retrieval.py is devops_kb, which we leave free for Member E).
 """
 import os
 
-import chromadb
 from dotenv import load_dotenv
 
+from shared import knowledge
+
 load_dotenv()
-HOST = os.getenv("CHROMA_HOST", "localhost")
-PORT = int(os.getenv("CHROMA_PORT", "8000"))
-NAME = os.getenv("CHROMA_COLLECTION", "devops_kb_dev")
+NAME = os.getenv("KNOWLEDGE_COLLECTION", "devops_kb_dev")
 
 # Placeholder notes written for testing only, not real documentation.
 DOCS = [
@@ -31,11 +30,5 @@ DOCS = [
 
 
 if __name__ == "__main__":
-    client = chromadb.HttpClient(host=HOST, port=PORT)
-    collection = client.get_or_create_collection(NAME)
-    collection.upsert(
-        ids=[d[0] for d in DOCS],
-        documents=[d[1] for d in DOCS],
-        metadatas=[{"source": d[0]} for d in DOCS],
-    )
-    print(f"Seeded {len(DOCS)} docs into '{NAME}' at {HOST}:{PORT} (now {collection.count()} total)")
+    knowledge.add_documents([{"id": d[0], "source": d[0], "content": d[1]} for d in DOCS], collection=NAME)
+    print(f"Seeded {len(DOCS)} docs into '{NAME}' (now {knowledge.count(NAME)} total)")

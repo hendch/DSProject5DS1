@@ -10,12 +10,12 @@ was approved. Every step is recorded in one tamper-evident audit log.
 ```
 pyproject.toml          one environment for every agent:  pip install -e ".[dev]"
 .env.example            one settings file for every agent (copy to .env)
-docker-compose.yml      postgres, redis, chroma, opa
-db/                     schema.sql + migrations/ (run in order on a fresh database)
-shared/                 code every agent uses: database, Redis event bus, publish_and_log
+docker-compose.yml      postgres (with pgvector) and opa
+db/migrations/          numbered SQL files, applied with: python -m shared.migrate
+shared/                 code every agent uses: database, event bus, knowledge base, migrations
 agents/
   dependency_resolver/  Lyna            circular dependencies in OpenTofu code
-  diagnostic_rca/       zrharounesprit  root causes of failed CI builds (RAG on Chroma)
+  diagnostic_rca/       zrharounesprit  root causes of failed CI builds (RAG on pgvector)
   merge_assistant/      Muaad           git merge conflicts and proposed resolutions
   code_reviewer/        hendch          ML/MLOps review of pull requests, safe lint fixes
   drift_detection/      omar            data and concept drift on a deployed model
@@ -38,8 +38,25 @@ python -m venv venv
 venv\Scripts\activate              # Windows (source venv/bin/activate elsewhere)
 python -m pip install -e ".[dev]"
 copy .env.example .env             # then fill in keys if you use a hosted LLM
-docker compose up -d
+docker compose up -d               # PostgreSQL + OPA
+python -m shared.migrate           # create or update every table
 ```
+
+## One database for everything
+
+PostgreSQL is the only data store:
+
+| Area | Schema | What |
+|---|---|---|
+| Records | `public` | `actions`, `approvals`, `approval_votes`, hash-chained `reasoning_logs` |
+| Event bus | `public` | `events` (append-only log, LISTEN/NOTIFY) + `event_receipts` per consumer |
+| Orchestrator | `orchestrator` | `runs`, `run_steps`, `run_actions` |
+| Knowledge base | `knowledge` | RCA documents + embeddings (pgvector) |
+| Drift | `drift` | batches, runs, reports, feature results, model versions |
+
+An agent's action, its audit row and its event are written in one transaction, so
+they can never disagree. Tests and demos use an embedded PostgreSQL (`pgserver`), so
+Docker is only needed for a persistent database.
 
 LLM: by default every agent uses a local model through [Ollama](https://ollama.com)
 (`ollama pull llama3.1:8b`). Any OpenAI-compatible endpoint (Hugging Face router, xAI…)
@@ -71,8 +88,9 @@ issues before the orchestrator can link them:
   pushed, because the old `.gitignore` hid every folder named `data/`. Push it with
   `git add agents/drift_detection/data` (the rule is fixed); until then the agent can't
   start. Its generated files now go to `agents/drift_detection/runtime/`.
-- **drift_detection** has its own SQLite store and approval flow, separate from the
-  guardrail; both move to the shared ones in a later phase.
+- **drift_detection** stores its data in PostgreSQL (schema `drift`) and copies its
+  audit entries into the shared hash-chained log; its approval flow still runs on its
+  own until the orchestrator routes model changes through the guardrail.
 - **code_reviewer**: the workflow still checks out the agent from the `code-reviewer`
   branch (`vars.AGENT_REF`). Point it at this branch once merged. Its baseline
   `pytest` runs at the repository root, which now holds every agent's tests; scope it to
@@ -80,3 +98,5 @@ issues before the orchestrator can link them:
 - **diagnostic_rca** and **merge_assistant** have no LLM fallback yet.
 - Only the guardrail, dependency_resolver, diagnostic_rca and merge_assistant use the
   shared event bus; code_reviewer and drift_detection get adapters in the orchestrator.
+- The knowledge base is empty until `corpus/ingest.py` (Member E) fills it; for tests,
+  `python -m agents.diagnostic_rca.seed_dev_kb` adds 5 sample documents.

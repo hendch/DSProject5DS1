@@ -1,38 +1,31 @@
 """Guardrail Agent: the gate every proposed action passes through.
 
     receive -> validate -> compute real risk -> OPA policy -> LLM may escalate
-            -> save approval + hashed audit row -> ack -> announce
+            -> save approval + hashed audit row -> receipt -> announce
 
 It never executes anything. It decides whether an action is auto-approved,
 held for a human, or rejected, and records why.
 
 Run:      python -m agents.guardrail.agent           (loop forever)
-          python -m agents.guardrail.agent --once    (drain the stream, then exit)
+          python -m agents.guardrail.agent --once    (handle pending events, then exit)
           python -m agents.guardrail.agent --verify  (check the audit hash chain)
 """
-import json
-import os
-import socket
 import sys
+import threading
 import time
 
-import psycopg2
-import redis
 from dotenv import load_dotenv
 
 from agents.guardrail import llm_judge, policy_client, store
-from agents.guardrail.announce import STREAM, announce
+from agents.guardrail.announce import announce
 from agents.guardrail.risk import ADVISORY, assess, validate
-from shared.redis_client import get_redis
+from shared.events import Consumer
 
 load_dotenv()
-GROUP = "guardrail"
-CONSUMER = os.getenv("GUARDRAIL_CONSUMER", f"guardrail-{socket.gethostname()}")
-DEAD_LETTER = "pipeline_events_dead"
-MAX_DELIVERIES = 5             # after this many failed attempts, park the event
-RECLAIM_IDLE_MS = 30_000       # retry events a crashed/failed attempt left unacknowledged
+CONSUMER = "guardrail"          # its receipts in event_receipts
+MAX_ATTEMPTS = 5                # after this many failures an event is marked dead
 EXPIRY_CHECK_SECONDS = 60
-ACTION_ROW_WAITS = 10          # x 0.2 s: wait for the agent's actions row (see handle)
+SKIP_AGENTS = {"guardrail", "orchestrator"}   # decisions and run lifecycle: never gated
 OWN_EVENTS = {"approval_request", "approval_result"}
 
 
@@ -55,9 +48,9 @@ def decide(event: dict) -> tuple[str, list, dict, dict | None]:
 def process_event(event: dict) -> str:
     """Decide one event end to end. Returns an outcome label (for logs and tests).
     Raises on infrastructure errors so the caller does NOT acknowledge the event."""
-    if isinstance(event, dict) and (event.get("agent_name") == "guardrail"
+    if isinstance(event, dict) and (event.get("agent_name") in SKIP_AGENTS
                                     or event.get("action_type") in OWN_EVENTS):
-        return "skipped"  # our own announcements: never gate ourselves
+        return "skipped"  # decisions and lifecycle events: never gate ourselves
     problems = validate(event)
     if problems:
         store.record_malformed(event, problems)
@@ -81,45 +74,6 @@ def process_event(event: dict) -> str:
     return approval["status"]
 
 
-def handle(r: redis.Redis, msg_id, fields: dict) -> None:
-    raw = fields.get(b"data") or fields.get("data") or b""
-    try:
-        event = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        event = {"raw": raw.decode(errors="replace") if isinstance(raw, bytes) else str(raw)}
-    try:
-        for attempt in range(ACTION_ROW_WAITS + 1):
-            try:
-                process_event(event)
-                break
-            except psycopg2.errors.ForeignKeyViolation:
-                # publish_and_log writes Redis before Postgres, so we can wake up
-                # before the agent's actions row is committed. Give it a moment.
-                if attempt == ACTION_ROW_WAITS:
-                    raise
-                time.sleep(0.2)
-    except Exception as e:  # noqa: BLE001 - DB/Redis down, action row never written...
-        print(f"[warn] could not process {msg_id!r} ({type(e).__name__}: {e}); will retry")
-        return  # not acknowledged: it stays pending and is reclaimed later
-    r.xack(STREAM, GROUP, msg_id)
-
-
-def reclaim(r: redis.Redis) -> None:
-    """Retry events left unacknowledged; park the ones that keep failing."""
-    _, messages, *_ = r.xautoclaim(STREAM, GROUP, CONSUMER, RECLAIM_IDLE_MS, "0-0", count=20)
-    for msg_id, fields in messages:
-        if fields is None:  # deleted from the stream meanwhile
-            r.xack(STREAM, GROUP, msg_id)
-            continue
-        info = r.xpending_range(STREAM, GROUP, min=msg_id, max=msg_id, count=1)
-        if info and info[0]["times_delivered"] > MAX_DELIVERIES:
-            r.xadd(DEAD_LETTER, {**fields, "original_id": msg_id})
-            r.xack(STREAM, GROUP, msg_id)
-            print(f"[guardrail] parked {msg_id!r} in {DEAD_LETTER} after {MAX_DELIVERIES} failures")
-        else:
-            handle(r, msg_id, fields)
-
-
 def expire_and_announce() -> None:
     for row in store.expire_overdue():
         announce(row["correlation_id"], row["environment"], row["risk"], row["action_id"],
@@ -127,33 +81,29 @@ def expire_and_announce() -> None:
         print(f"[guardrail] approval {row['id']} expired")
 
 
-def ensure_group(r: redis.Redis) -> None:
-    try:  # "0": on first start, also decide events published before the guardrail existed
-        r.xgroup_create(STREAM, GROUP, id="0", mkstream=True)
-    except redis.ResponseError as e:
-        if "BUSYGROUP" not in str(e):
-            raise
+def consumer() -> Consumer:
+    # Each event is decided once (UNIQUE action_id), so redelivery after a crash is safe.
+    return Consumer(CONSUMER, process_event, use_shared=store.USE_SHARED, max_attempts=MAX_ATTEMPTS)
 
 
-def run(once: bool = False) -> None:
-    r = get_redis()
-    ensure_group(r)
-    print(f"[guardrail] consuming '{STREAM}' as {GROUP}/{CONSUMER} (OPA at {policy_client.OPA_URL})")
-    last_expiry = 0.0
-    while True:
-        if time.monotonic() - last_expiry > EXPIRY_CHECK_SECONDS:
+def run(once: bool = False, stop: threading.Event | None = None) -> None:
+    """Decide every event on the bus. `once`: handle what is there now, then return."""
+    last_expiry = [0.0]
+
+    def tick():
+        if time.monotonic() - last_expiry[0] > EXPIRY_CHECK_SECONDS:
             try:
                 expire_and_announce()
             except Exception as e:  # noqa: BLE001
                 print(f"[warn] expiry sweep failed: {e}")
-            last_expiry = time.monotonic()
-        reclaim(r)
-        batch = r.xreadgroup(GROUP, CONSUMER, {STREAM: ">"}, count=10, block=None if once else 5000)
-        if once and not batch:
-            return
-        for _, messages in batch or []:
-            for msg_id, fields in messages:
-                handle(r, msg_id, fields)
+            last_expiry[0] = time.monotonic()
+
+    print(f"[guardrail] consuming the event log as '{CONSUMER}' (OPA at {policy_client.OPA_URL})")
+    if once:
+        tick()
+        consumer().poll()
+    else:
+        consumer().run(stop=stop, tick=tick)
 
 
 if __name__ == "__main__":

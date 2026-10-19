@@ -14,7 +14,6 @@ from pathlib import Path
 from unittest import mock
 
 import httpx
-import psycopg2
 from fastapi.testclient import TestClient
 
 from agents.guardrail import agent, api, llm_judge, policy_client
@@ -59,8 +58,8 @@ class Flow(DbTestCase):
         self.client = TestClient(api.app)
 
     def results(self):
-        return {e["payload"]["action_ref"]: e for e in self.stream()
-                if e["agent_name"] == "guardrail"}
+        return {e["payload"]["action_ref"]: e for e in self.events()
+                if isinstance(e, dict) and e.get("agent_name") == "guardrail"}
 
     def test_friday_evening_scenario(self):
         clean = self.publish()  # dev/low, nothing sensitive
@@ -81,8 +80,8 @@ class Flow(DbTestCase):
         self.assertEqual(out[iam["event_id"]]["blast_radius"], "high")  # raised from "low"
         self.assertEqual(out[prod["event_id"]]["payload"]["required_approvals"], 2)
 
-        # Every agent event was acknowledged; nothing is left pending in the group.
-        self.assertEqual(self.redis.xpending("pipeline_events", "guardrail")["pending"], 0)
+        # Every event has a receipt; nothing is left for the guardrail to do.
+        self.assertEqual(self.unhandled("guardrail"), 0)
         # Running again (e.g. after a restart) decides nothing twice.
         agent.run(once=True)
         self.assertEqual(len(self.results()), 5)
@@ -96,7 +95,7 @@ class Flow(DbTestCase):
         self.assertEqual((r.status_code, r.json()["status"]), (200, "approved"))
         self.assertEqual(self.client.post(f"/approve/{iam_id}", json={"decided_by": "karim"}).status_code, 409)
 
-        final = [e for e in self.stream() if e["action_type"] == "approval_result"
+        final = [e for e in self.events() if e["action_type"] == "approval_result"
                  and e["payload"]["action_ref"] == iam["event_id"]]
         self.assertEqual(final[-1]["payload"]["decided_by"], "ines")
 
@@ -108,41 +107,47 @@ class Flow(DbTestCase):
 
         self.assertEqual(self.client.get("/audit/verify").json(), {"intact": True, "broken_rows": []})
 
-    def test_malformed_and_garbage_events_do_not_block_the_stream(self):
-        self.redis.xadd("pipeline_events", {"data": "not json"})
-        self.redis.xadd("pipeline_events", {"data": '{"agent_name": "dependency_resolver"}'})
+    def test_malformed_and_garbage_events_do_not_block_the_log(self):
+        self.raw_event("not an object")
+        self.raw_event({"agent_name": "dependency_resolver"})
         ok = self.publish()
         agent.run(once=True)
         self.assertIn(ok["event_id"], self.results())
-        self.assertEqual(self.redis.xpending("pipeline_events", "guardrail")["pending"], 0)
+        self.assertEqual(self.unhandled("guardrail"), 0)
         malformed = self.sql("SELECT count(*) FROM reasoning_logs WHERE decision = 'reject: malformed_event'")
         self.assertEqual(malformed[0][0], 2)
 
-    def test_database_down_leaves_event_for_retry(self):
+    def test_failure_is_retried_later_then_decided(self):
         e = self.publish()
         with mock.patch.object(agent.store, "record_decision", side_effect=ConnectionError("db down")):
             agent.run(once=True)
-        self.assertEqual(self.redis.xpending("pipeline_events", "guardrail")["pending"], 1)
-        with mock.patch.object(agent, "RECLAIM_IDLE_MS", 0):
-            agent.run(once=True)
+        self.assertEqual(self.sql("SELECT status, attempts FROM event_receipts WHERE consumer = 'guardrail'"),
+                         [("retry", 1)])
+        agent.run(once=True)  # not due yet: the backoff holds it back
+        self.assertNotIn(e["event_id"], self.results())
+        self.sql("UPDATE event_receipts SET next_attempt_at = now()")  # fast-forward the backoff
+        agent.run(once=True)
         self.assertIn(e["event_id"], self.results())
-        self.assertEqual(self.redis.xpending("pipeline_events", "guardrail")["pending"], 0)
+        self.assertEqual(self.unhandled("guardrail"), 0)
 
-    def test_event_seen_before_its_db_row_is_decided_without_waiting_for_reclaim(self):
-        e = self.publish()
-        real, calls = agent.store.record_decision, []
+    def test_event_that_keeps_failing_is_marked_dead(self):
+        self.publish()
+        with mock.patch.object(agent.store, "record_decision", side_effect=RuntimeError("bug")):
+            for _ in range(agent.MAX_ATTEMPTS):
+                agent.run(once=True)
+                self.sql("UPDATE event_receipts SET next_attempt_at = now()")
+        self.assertEqual(self.sql("SELECT status, attempts FROM event_receipts WHERE consumer = 'guardrail'"),
+                         [("dead", agent.MAX_ATTEMPTS)])
+        self.assertEqual(self.unhandled("guardrail"), 0)  # dead events no longer block anything
 
-        def not_committed_yet(*args):
-            calls.append(1)
-            if len(calls) < 3:  # the agent's actions row "is not committed yet"
-                raise psycopg2.errors.ForeignKeyViolation()
-            return real(*args)
-
-        with mock.patch.object(agent.store, "record_decision", side_effect=not_committed_yet):
-            agent.run(once=True)
-        self.assertEqual(len(calls), 3)
-        self.assertIn(e["event_id"], self.results())
-        self.assertEqual(self.redis.xpending("pipeline_events", "guardrail")["pending"], 0)
+    def test_publish_is_atomic(self):
+        """An agent's action, audit row and event are written together or not at all."""
+        from shared import events
+        with mock.patch.object(events, "_insert_event", side_effect=RuntimeError("bus write failed")):
+            with self.assertRaises(RuntimeError):
+                self.publish()
+        self.assertEqual(self.sql("SELECT (SELECT count(*) FROM actions), (SELECT count(*) FROM reasoning_logs),"
+                                  " (SELECT count(*) FROM events)"), [(0, 0, 0)])
 
     def test_api_validation(self):
         self.assertEqual(self.client.get("/approvals/not-a-uuid").status_code, 422)

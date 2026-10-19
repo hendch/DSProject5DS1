@@ -1,24 +1,39 @@
-"""SQLite persistence: batches, runs, feature results, reports, actions, models, audit log.
+"""PostgreSQL persistence: batches, runs, feature results, reports, actions, models, audit log.
 
-A new connection is opened per operation so the store is safe to use from the
-API server, the scheduler thread and the CLI at the same time.
+Same interface as the former SQLite store. Tables live in their own schema:
+`drift` for the agent's normal workspace (runtime/), and one `drift_ws_<hash>` schema per
+isolated workspace (the evaluation and the tests), so runs never mix. A new connection
+is opened per operation, so the store is safe from the API server, the scheduler thread
+and the CLI at the same time.
+
+Every audit entry of the normal workspace is also copied into the platform's shared,
+hash-chained `public.reasoning_logs`, so drift history survives a simulation reset.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
-import sqlite3
+import re
+import uuid
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
+import psycopg2.extras
+
+from shared.db import get_connection
+
+DEFAULT_SCHEMA = "drift"
+
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS sim_state (
+CREATE SCHEMA IF NOT EXISTS {s};
+CREATE TABLE IF NOT EXISTS {s}.sim_state (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS batches (
+CREATE TABLE IF NOT EXISTS {s}.batches (
     id INTEGER PRIMARY KEY,
     scenario TEXT NOT NULL,
     created_at TEXT NOT NULL,
@@ -27,48 +42,48 @@ CREATE TABLE IF NOT EXISTS batches (
     model_version TEXT NOT NULL,
     path TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS pipeline_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE IF NOT EXISTS {s}.sim_events (
+    id BIGSERIAL PRIMARY KEY,
     batch_id INTEGER NOT NULL,
     created_at TEXT NOT NULL,
     source TEXT NOT NULL,
     message TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE IF NOT EXISTS {s}.runs (
+    id BIGSERIAL PRIMARY KEY,
     batch_id INTEGER NOT NULL,
     perf_batch_id INTEGER,
     created_at TEXT NOT NULL,
     model_version TEXT NOT NULL,
     severity TEXT NOT NULL,
-    score REAL NOT NULL,
+    score DOUBLE PRECISION NOT NULL,
     report_json TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS feature_results (
-    run_id INTEGER NOT NULL,
+CREATE TABLE IF NOT EXISTS {s}.feature_results (
+    run_id BIGINT NOT NULL,
     feature TEXT NOT NULL,
     kind TEXT NOT NULL,
     status TEXT NOT NULL,
-    psi REAL,
-    statistic REAL,
-    p_value REAL,
-    effect REAL,
-    drift_score REAL,
-    importance REAL,
-    weighted REAL,
+    psi DOUBLE PRECISION,
+    statistic DOUBLE PRECISION,
+    p_value DOUBLE PRECISION,
+    effect DOUBLE PRECISION,
+    drift_score DOUBLE PRECISION,
+    importance DOUBLE PRECISION,
+    weighted DOUBLE PRECISION,
     PRIMARY KEY (run_id, feature)
 );
-CREATE TABLE IF NOT EXISTS reports (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id INTEGER NOT NULL,
+CREATE TABLE IF NOT EXISTS {s}.reports (
+    id BIGSERIAL PRIMARY KEY,
+    run_id BIGINT NOT NULL,
     created_at TEXT NOT NULL,
     source TEXT NOT NULL,
     llm_model TEXT,
     report_json TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS actions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id INTEGER,
+CREATE TABLE IF NOT EXISTS {s}.actions (
+    id BIGSERIAL PRIMARY KEY,
+    run_id BIGINT,
     created_at TEXT NOT NULL,
     action TEXT NOT NULL,
     risk TEXT NOT NULL,
@@ -79,29 +94,29 @@ CREATE TABLE IF NOT EXISTS actions (
     decided_by TEXT,
     note TEXT
 );
-CREATE TABLE IF NOT EXISTS model_versions (
+CREATE TABLE IF NOT EXISTS {s}.model_versions (
     version TEXT PRIMARY KEY,
     created_at TEXT NOT NULL,
     path TEXT NOT NULL,
     reference_path TEXT NOT NULL,
     parent TEXT,
-    threshold REAL NOT NULL,
+    threshold DOUBLE PRECISION NOT NULL,
     metrics_json TEXT NOT NULL,
     importance_json TEXT NOT NULL,
     notes TEXT,
     is_current INTEGER NOT NULL DEFAULT 0
 );
-CREATE TABLE IF NOT EXISTS audit_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE IF NOT EXISTS {s}.audit_log (
+    id BIGSERIAL PRIMARY KEY,
     created_at TEXT NOT NULL,
-    run_id INTEGER,
+    run_id BIGINT,
     actor TEXT NOT NULL,
     event TEXT NOT NULL,
     payload_json TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_runs_batch ON runs(batch_id);
-CREATE INDEX IF NOT EXISTS idx_audit_run ON audit_log(run_id);
-CREATE INDEX IF NOT EXISTS idx_feature_results_feature ON feature_results(feature);
+CREATE INDEX IF NOT EXISTS idx_runs_batch ON {s}.runs(batch_id);
+CREATE INDEX IF NOT EXISTS idx_audit_run ON {s}.audit_log(run_id);
+CREATE INDEX IF NOT EXISTS idx_feature_results_feature ON {s}.feature_results(feature);
 """
 
 
@@ -113,23 +128,60 @@ def _dumps(obj: Any) -> str:
     return json.dumps(obj, default=str)
 
 
+def schema_for(path: Path) -> str:
+    """`drift` for the normal workspace (…/runtime/drift_agent.db), a stable private schema
+    for any other workspace, so isolated runs keep their own tables as before."""
+    path = Path(path).resolve()
+    if path.parent.name == "runtime":
+        return DEFAULT_SCHEMA
+    return "drift_ws_" + hashlib.sha1(str(path).encode()).hexdigest()[:10]
+
+
+def run_correlation_id(run_id: int | None) -> str:
+    """Stable correlation id for a drift run, shared with the orchestrator and the audit log."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"drift-run-{run_id}" if run_id else "drift-system"))
+
+
+class _Con:
+    """sqlite3-like facade over a psycopg2 connection: `?` placeholders, rows as dicts."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql: str, args: tuple = ()):
+        cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(sql.replace("?", "%s"), args)
+        return cur
+
+    def executemany(self, sql: str, rows: list) -> None:
+        with self._conn.cursor() as cur:
+            cur.executemany(sql.replace("?", "%s"), rows)
+
+
 class Store:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, use_shared: bool = False):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.schema = schema_for(self.path)
+        if not re.fullmatch(r"[a-z_][a-z0-9_]*", self.schema):
+            raise ValueError(f"unsafe schema name {self.schema!r}")
+        self.use_shared = use_shared
         with self.connect() as con:
-            con.executescript(SCHEMA)
+            con.execute(SCHEMA.format(s=self.schema))
 
     @contextmanager
-    def connect(self) -> Iterator[sqlite3.Connection]:
-        con = sqlite3.connect(self.path, timeout=30)
-        con.row_factory = sqlite3.Row
-        con.execute("PRAGMA journal_mode=WAL")
+    def connect(self) -> Iterator[_Con]:
+        conn = get_connection(self.use_shared)
         try:
-            yield con
-            con.commit()
+            with conn.cursor() as cur:
+                cur.execute(f"SET search_path TO {self.schema}, public")
+            yield _Con(conn)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         finally:
-            con.close()
+            conn.close()
 
     def _all(self, sql: str, args: tuple = ()) -> list[dict]:
         with self.connect() as con:
@@ -153,9 +205,9 @@ class Store:
             )
 
     def reset_simulation(self) -> None:
-        """Clear production history; keep model versions."""
+        """Clear production history; keep model versions. The shared audit log keeps its copy."""
         with self.connect() as con:
-            for table in ("sim_state", "batches", "pipeline_events", "runs",
+            for table in ("sim_state", "batches", "sim_events", "runs",
                           "feature_results", "reports", "actions", "audit_log"):
                 con.execute(f"DELETE FROM {table}")
 
@@ -170,7 +222,7 @@ class Store:
 
     def release_labels(self, up_to_batch: int) -> list[int]:
         with self.connect() as con:
-            ids = [r[0] for r in con.execute(
+            ids = [r["id"] for r in con.execute(
                 "SELECT id FROM batches WHERE id <= ? AND labels_available = 0", (up_to_batch,)
             ).fetchall()]
             con.execute("UPDATE batches SET labels_available = 1 WHERE id <= ?", (up_to_batch,))
@@ -189,17 +241,17 @@ class Store:
     def labelled_batches(self) -> list[dict]:
         return self._all("SELECT * FROM batches WHERE labels_available = 1 ORDER BY id")
 
-    # ---- pipeline events --------------------------------------------------
+    # ---- simulated pipeline events ------------------------------------------
     def add_event(self, batch_id: int, source: str, message: str) -> None:
         with self.connect() as con:
             con.execute(
-                "INSERT INTO pipeline_events(batch_id, created_at, source, message) VALUES (?, ?, ?, ?)",
+                "INSERT INTO sim_events(batch_id, created_at, source, message) VALUES (?, ?, ?, ?)",
                 (batch_id, now(), source, message),
             )
 
     def events_between(self, start_batch: int, end_batch: int) -> list[dict]:
         return self._all(
-            "SELECT * FROM pipeline_events WHERE batch_id BETWEEN ? AND ? ORDER BY batch_id, id",
+            "SELECT * FROM sim_events WHERE batch_id BETWEEN ? AND ? ORDER BY batch_id, id",
             (start_batch, end_batch),
         )
 
@@ -207,12 +259,11 @@ class Store:
     def add_run(self, batch_id: int, perf_batch_id: int | None, model_version: str,
                 severity: str, score: float, report: dict, features: list[dict]) -> int:
         with self.connect() as con:
-            cur = con.execute(
+            run_id = int(con.execute(
                 "INSERT INTO runs(batch_id, perf_batch_id, created_at, model_version, severity, score, report_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
                 (batch_id, perf_batch_id, now(), model_version, severity, score, _dumps(report)),
-            )
-            run_id = int(cur.lastrowid)
+            ).fetchone()["id"])
             con.executemany(
                 "INSERT INTO feature_results(run_id, feature, kind, status, psi, statistic, p_value, effect, "
                 "drift_score, importance, weighted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -232,13 +283,12 @@ class Store:
         return row
 
     def list_runs(self, limit: int = 200) -> list[dict]:
-        rows = self._all(
+        return self._all(
             "SELECT r.id, r.batch_id, r.perf_batch_id, r.created_at, r.model_version, r.severity, r.score, "
             "b.scenario, (SELECT COUNT(*) FROM reports p WHERE p.run_id = r.id) AS has_report "
             "FROM runs r LEFT JOIN batches b ON b.id = r.batch_id ORDER BY r.id DESC LIMIT ?",
             (limit,),
         )
-        return rows
 
     def latest_run(self) -> dict | None:
         row = self._one("SELECT id FROM runs ORDER BY id DESC LIMIT 1")
@@ -289,11 +339,11 @@ class Store:
     # ---- reports ----------------------------------------------------------
     def add_report(self, run_id: int, source: str, llm_model: str | None, report: dict) -> int:
         with self.connect() as con:
-            cur = con.execute(
-                "INSERT INTO reports(run_id, created_at, source, llm_model, report_json) VALUES (?, ?, ?, ?, ?)",
+            return int(con.execute(
+                "INSERT INTO reports(run_id, created_at, source, llm_model, report_json) "
+                "VALUES (?, ?, ?, ?, ?) RETURNING id",
                 (run_id, now(), source, llm_model, _dumps(report)),
-            )
-            return int(cur.lastrowid)
+            ).fetchone()["id"])
 
     def get_report(self, run_id: int) -> dict | None:
         row = self._one("SELECT * FROM reports WHERE run_id = ? ORDER BY id DESC LIMIT 1", (run_id,))
@@ -305,12 +355,11 @@ class Store:
     def add_action(self, run_id: int | None, action: str, risk: str, status: str,
                    payload: dict, result: dict | None = None) -> int:
         with self.connect() as con:
-            cur = con.execute(
+            return int(con.execute(
                 "INSERT INTO actions(run_id, created_at, action, risk, status, payload_json, result_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
                 (run_id, now(), action, risk, status, _dumps(payload), _dumps(result) if result else None),
-            )
-            return int(cur.lastrowid)
+            ).fetchone()["id"])
 
     def update_action(self, action_id: int, status: str, result: dict | None = None,
                       decided_by: str | None = None, note: str | None = None) -> None:
@@ -352,9 +401,14 @@ class Store:
             if make_current:
                 con.execute("UPDATE model_versions SET is_current = 0")
             con.execute(
-                "INSERT OR REPLACE INTO model_versions(version, created_at, path, reference_path, parent, "
+                "INSERT INTO model_versions(version, created_at, path, reference_path, parent, "
                 "threshold, metrics_json, importance_json, notes, is_current) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT (version) DO UPDATE SET created_at = excluded.created_at, path = excluded.path, "
+                "reference_path = excluded.reference_path, parent = excluded.parent, "
+                "threshold = excluded.threshold, metrics_json = excluded.metrics_json, "
+                "importance_json = excluded.importance_json, notes = excluded.notes, "
+                "is_current = excluded.is_current",
                 (version, now(), path, reference_path, parent, threshold, _dumps(metrics),
                  _dumps(importance), notes, 1 if make_current else 0),
             )
@@ -391,6 +445,13 @@ class Store:
                 "INSERT INTO audit_log(created_at, run_id, actor, event, payload_json) VALUES (?, ?, ?, ?, ?)",
                 (now(), run_id, actor, event, _dumps(payload or {})),
             )
+            if self.schema == DEFAULT_SCHEMA:  # the platform's tamper-evident copy
+                con.execute(
+                    "INSERT INTO public.reasoning_logs (correlation_id, agent_name, input_summary, "
+                    "reasoning_trace, decision) VALUES (?, 'drift_detection', ?, ?, ?)",
+                    (run_correlation_id(run_id), event,
+                     _dumps({"actor": actor, "run_id": run_id, **(payload or {})}), f"{actor}: {event}"),
+                )
 
     def list_audit(self, run_id: int | None = None, actor: str | None = None, limit: int = 500) -> list[dict]:
         sql, args = "SELECT * FROM audit_log WHERE 1=1", []

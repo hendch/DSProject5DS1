@@ -41,7 +41,7 @@ python -m pip install -e ".[dev]"
 python -m agents.guardrail.playground        # opens http://localhost:8090
 ```
 
-One command starts a throwaway Postgres, an in-memory Redis, OPA with the real
+One command starts a throwaway Postgres (also the event bus), OPA with the real
 policy, the guardrail loop and the API, plus a page where you can:
 
 - send ready-made proposals (the ShopLine scenarios: Friday IAM cycle, prod
@@ -49,7 +49,7 @@ policy, the guardrail loop and the API, plus a page where you can:
   each showing the outcome it should produce;
 - approve / reject as sami, ines, karim or anyone, and see 403 / 409 / 410;
 - open "why?" on any decision: risk signals, OPA rule, LLM review, audit trail;
-- watch the stream exactly as the Orchestrator will see it;
+- watch the event log exactly as the Orchestrator will see it;
 - tamper with the audit log as a DB admin and watch the hash chain catch it;
 - simulate an OPA outage (fail closed) and toggle the LLM judge;
 - edit `policy/guardrail.rego` while it runs: OPA reloads it live.
@@ -81,17 +81,15 @@ and the policy decision stands, as with any LLM failure.
 ## Run it
 
 ```powershell
-docker-compose up -d                     # postgres, redis, chroma, opa
+docker compose up -d                     # postgres, opa
+python -m shared.migrate
 python -m pip install -e ".[dev]"
 python -m agents.guardrail.agent         # the consumer loop (Ctrl+C to stop)
 uvicorn agents.guardrail.api:app --port 8080   # approvals API, docs at /docs
 ```
 
-Existing Postgres volume (created before this branch)? Apply the migration once:
-
-```powershell
-Get-Content db/migrations/002_guardrail.sql | docker compose exec -T postgres psql -U devops -d agents
-```
+`python -m shared.migrate` creates or updates every table, on a new or an existing
+database (local, Docker or Neon).
 
 Other commands: `python -m agents.guardrail.agent --once` (drain and exit),
 `--verify` (check the audit chain). Settings are in `.env.example`.
@@ -123,9 +121,11 @@ The database tests run against a real PostgreSQL 16 (from `pgserver`, or
 
 ## Reliability
 
-- Redis **consumer group**: an event is acknowledged only after its decision is
-  committed. Crash or DB down → it is retried; after 5 failures it is parked in
-  `pipeline_events_dead`.
+- Events come from the PostgreSQL event log (`shared/events.py`). The guardrail
+  records a receipt only after its decision is committed. A failure is retried with
+  a growing delay; after 5 failures the event is marked `dead` and stops blocking.
+- An agent's action and its event are written in one transaction, so the guardrail
+  never sees an event without its action row.
 - Redelivered events are not decided twice (`UNIQUE(action_id)`).
 - OPA unreachable → hold (fail closed). Malformed event → rejected and audited.
 
@@ -134,14 +134,10 @@ The database tests run against a real PostgreSQL 16 (from `pgserver`, or
 - **Schema**: `db/migrations/002_guardrail.sql` adds columns to `approvals`, a
   new `approval_votes` table, and the hash chain + append-only triggers on
   `reasoning_logs` (covers every agent's rows).
-- **docker-compose**: adds the `opa` service and mounts the migration
-  (`schema.sql` is now mounted as `001_schema.sql` so it runs first).
+- **docker-compose**: adds the `opa` service.
 - **Event schema**: proposals should carry who triggered them
   (`payload.triggered_by`, e.g. the GitHub actor) so self-approval can be
   blocked; without it that check is skipped.
-- **`publish_and_log`** writes to Redis *before* Postgres, so the guardrail can
-  see an event before its `actions` row exists. It retries, so this is safe,
-  but swapping the order in `shared/events.py` would remove the delay.
 
 ## Known limits
 

@@ -16,10 +16,12 @@ allowed_actions := {
 	"dependency_resolver": {"propose_fix"},
 	"diagnostic_rca": {"rank_causes"},
 	"merge_assistant": {"flag_conflict"},
+	"code_reviewer": {"review_code", "propose_patch"},
+	"drift_detection": {"drift_report", "promote_model", "rollback_model"},
 }
 
 # Action types that only give advice and change nothing.
-advisory := {"rank_causes"}
+advisory := {"rank_causes", "review_code", "drift_report"}
 
 default decision := {
 	"decision": "hold",

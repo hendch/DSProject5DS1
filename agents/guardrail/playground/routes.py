@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from agents.guardrail import agent, llm_client, llm_judge, policy_client, store
 from agents.guardrail.playground.scenarios import BY_ID, SCENARIOS
 from shared.events import publish_and_log
-from shared.redis_client import get_redis
+from shared.events import list_events, publish
 
 router = APIRouter(prefix="/playground", tags=["playground (dev only)"])
 DEAD_OPA = "http://127.0.0.1:9"  # nothing listens here: simulates a policy-engine outage
@@ -38,7 +38,7 @@ def publish_scenario(scenario_id: str):
     if s is None:
         raise HTTPException(404, "unknown scenario")
     if "raw" in s:  # deliberately broken: bypass publish_and_log
-        get_redis().xadd(agent.STREAM, {"data": s["raw"]})
+        publish(json.loads(s["raw"]))
         return {"event_id": None}
     return _publish(s["event"])
 
@@ -62,12 +62,10 @@ def publish_custom(event: CustomEvent):
 @router.get("/events")
 def events(limit: int = 60):
     out = []
-    for msg_id, fields in get_redis().xrevrange(agent.STREAM, count=limit):
-        raw = fields.get(b"data", b"").decode(errors="replace")
-        try:
-            out.append({"id": msg_id.decode(), "event": json.loads(raw)})
-        except json.JSONDecodeError:
-            out.append({"id": msg_id.decode(), "raw": raw})
+    for row in list_events(limit=limit):
+        body = row["event"]
+        is_event = isinstance(body, dict) and isinstance(body.get("payload"), dict)
+        out.append({"id": row["id"], "event": body} if is_event else {"id": row["id"], "raw": json.dumps(body)})
     return out
 
 
@@ -190,7 +188,7 @@ def status():
     return {
         "time": datetime.now(timezone.utc).isoformat(),
         "postgres": _up(lambda: store._query("SELECT 1", ())),
-        "redis": _up(lambda: get_redis().ping()),
+        "bus": _up(lambda: list_events(limit=1)),
         "opa": _up(lambda: httpx.get(f"{state['real_opa_url']}/health", timeout=0.5).raise_for_status()),
         "opa_outage": policy_client.OPA_URL == DEAD_OPA,
         "llm_ok": llm_ok, "llm_error": llm_error, "llm_label": llm_client.label(),

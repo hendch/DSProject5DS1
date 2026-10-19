@@ -326,7 +326,7 @@ $("untamper").addEventListener("click", async () => {
 function renderStatus(s) {
   const chip = (label, up, warnText, title = "") => `<span class="chip ${up === "warn" ? "warn" : up ? "up" : "down"}" title="${esc(title)}">${esc(label)}${warnText ? ` · ${esc(warnText)}` : ""}</span>`;
   $("chips").innerHTML = [
-    chip("Postgres", s.postgres), chip("Redis", s.redis),
+    chip("Postgres", s.postgres), chip("Event bus", s.bus),
     chip("OPA", s.opa_outage ? "warn" : s.opa, s.opa_outage ? "outage simulated" : ""),
     chip(`LLM ${s.llm_label}`, s.llm_ok ? true : "warn", s.llm_ok ? "" : "not reachable", s.llm_error),
     chip("Guardrail loop", s.consumer),

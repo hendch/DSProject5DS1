@@ -9,7 +9,6 @@ import dataclasses
 import pytest
 
 from agents.drift_detection.config import Paths, load_settings
-from agents.drift_detection.service import DriftService
 
 
 @pytest.fixture(scope="session")
@@ -19,6 +18,10 @@ def settings():
 
 @pytest.fixture()
 def service(settings, tmp_path):
+    try:  # imported here so the tests that don't need the dataset still run without it
+        from agents.drift_detection.service import DriftService
+    except ModuleNotFoundError as e:
+        pytest.skip(f"drift_detection's data package is missing ({e})")
     base = DriftService(settings, use_llm=False)
     v1 = base.store.get_model("v1")
     if v1 is None:

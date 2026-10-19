@@ -72,7 +72,7 @@ drift-agent rollback          # undo: requests a rollback, which also needs appr
                       Guardrail ──► auto: raise alert, train challenger in sandbox
                                 └─► needs a human: promote model, roll back
                                                     │
-                                   everything ──► audit log (SQLite)
+                                   everything ──► audit log (PostgreSQL)
 ```
 
 ### 1. Detection (`detection/`)
@@ -159,7 +159,7 @@ agents/drift_detection/   (Python package agents.drift_detection)
   detection/             statistics, quality checks, severity
   agent/                 Grok client, tools, prompts, investigation loop, rule-based fallback
   guardrail/             risk policy, challenger training, approvals
-  store/                 SQLite (runs, reports, actions, models, audit log)
+  store/                 PostgreSQL, schema `drift` (runs, reports, actions, models, audit log)
   runtime/               generated: dataset, splits, models, database (git-ignored)
   api/                   FastAPI + dashboard (HTML, CSS, Chart.js)
   service.py             wires everything; used by CLI, API, scheduler, evaluation

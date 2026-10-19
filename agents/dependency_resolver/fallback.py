@@ -6,11 +6,11 @@ Three things can fail at runtime, and each gets a fallback:
    statically and find cycles with networkx.
 2. Ollama down / model not pulled / bad answer           -> keyword heuristic for
    the category and a templated explanation.
-3. Redis or Postgres down                                -> append the event to a
+3. Postgres down                                -> append the event to a
    local JSONL outbox so nothing is lost, and replay it later.
 
 Every fallback result is tagged with its source ("llm" / "heuristic",
-"tofu" / "static", "redis+db" / "outbox") so the downstream consumers can
+"tofu" / "static", "db" / "outbox") so the downstream consumers can
 tell how much to trust it.
 """
 import json
@@ -105,7 +105,7 @@ def heuristic_explain(category: str, cycle: list[str]) -> str:
 
 
 # --------------------------------------------------------------------------
-# 3. Local outbox when Redis / Postgres is unreachable
+# 3. Local outbox when Postgres is unreachable
 # --------------------------------------------------------------------------
 def write_outbox(record: dict) -> str:
     OUTBOX.parent.mkdir(parents=True, exist_ok=True)
@@ -117,7 +117,7 @@ def write_outbox(record: dict) -> str:
 
 def replay_outbox() -> int:
     """Re-publish queued events. Keeps any that still fail. Returns number sent."""
-    from shared.events import publish_and_log  # imported lazily: needs redis/db
+    from shared.events import publish_and_log  # imported lazily: needs the database
 
     if not OUTBOX.exists():
         return 0

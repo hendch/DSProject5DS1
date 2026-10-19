@@ -1,6 +1,8 @@
 services:
+  # One database for everything: records, the event bus, the knowledge base (pgvector)
+  # and orchestration state. Create or update its tables with:  python -m shared.migrate
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: devops
       POSTGRES_PASSWORD: devops
@@ -9,21 +11,6 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # run in name order on a fresh volume: schema first, then migrations
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql
-      - ./db/migrations/002_guardrail.sql:/docker-entrypoint-initdb.d/002_guardrail.sql
-
-  redis:
-    image: redis:7
-    ports:
-      - "6379:6379"
-
-  chroma:
-    image: chromadb/chroma
-    ports:
-      - "8000:8000"
-    volumes:
-      - chroma_data:/data
 
   opa:  # policy engine for the guardrail agent; reloads policy files on change
     image: openpolicyagent/opa:1.20.2
@@ -35,4 +22,3 @@ services:
 
 volumes:
   pgdata:
-  chroma_data:

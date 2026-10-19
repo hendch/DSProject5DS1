@@ -1,5 +1,5 @@
 """Run with: python -m unittest tests.test_dependency_resolver_fallback -v
-No tofu, Ollama, Redis or Postgres needed: the failures are simulated."""
+No tofu, Ollama or Postgres needed: the failures are simulated."""
 import json
 import tempfile
 import unittest

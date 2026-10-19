@@ -11,10 +11,10 @@ description = "Multi-agent DevOps/MLOps assistant: specialist agents propose, a 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    # shared: config, database, event bus
+    # shared: config, PostgreSQL (records, event bus, knowledge base)
     "python-dotenv==1.0.1",
     "psycopg2-binary==2.9.10",
-    "redis==5.0.8",
+    "fastembed>=0.9",     # local text embeddings for the knowledge base (pgvector)
     "pydantic>=2.7",
     "pyyaml>=6.0",
     # web: guardrail API, drift dashboard
@@ -28,8 +28,6 @@ dependencies = [
     # dependency_resolver
     "networkx==3.3",
     "pydot==3.0.1",
-    # diagnostic_rca
-    "chromadb==1.5.9",
     # merge_assistant
     "gitpython>=3.1",
     # code_reviewer
@@ -50,8 +48,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.2",
-    "fakeredis==2.39.0",  # in-memory Redis for tests
-    "pgserver==0.1.4",    # throwaway PostgreSQL 16 for tests, no Docker needed
+    "pgserver==0.1.4",    # throwaway PostgreSQL 16 + pgvector for tests and demos, no Docker needed
 ]
 
 [project.scripts]
@@ -65,4 +62,4 @@ include = ["shared*", "agents*"]
 "*" = ["*.txt", "*.json", "*.yaml", "*.rego", "*.md", "*.html", "*.css", "*.js", "*.woff", "*.woff2", "*.tf", "*.log"]
 
 [tool.pytest.ini_options]
-testpaths = ["agents"]
+testpaths = ["agents", "tests"]

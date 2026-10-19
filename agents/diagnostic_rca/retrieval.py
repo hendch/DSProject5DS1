@@ -1,22 +1,24 @@
 """Retrieval layer for the Diagnostic/RCA agent (the "R" in RAG).
 
-Queries the Chroma collection that corpus/ingest.py (Member E) fills with
-docs and the Stack Exchange subset. If Chroma is down or the collection is
-empty, we return [] so the agent still runs without retrieved context.
+Searches the knowledge base in PostgreSQL + pgvector (shared/knowledge.py), which
+corpus/ingest.py (Member E) fills with docs and the Stack Exchange subset. If the
+database is down or the collection is empty, we return [] so the agent still runs
+without retrieved context.
 """
 import os
 
-import chromadb
 from dotenv import load_dotenv
 
+from shared import knowledge
+
 load_dotenv()
-HOST = os.getenv("CHROMA_HOST", "localhost")
-PORT = int(os.getenv("CHROMA_PORT", "8000"))
-COLLECTION = os.getenv("CHROMA_COLLECTION", "devops_kb")  # must match corpus/ingest.py
-MAX_DOC_CHARS = 600  # keep prompts small for a 3B model
-# Chroma returns a distance per hit (lower = closer). Docs further than this are dropped.
+COLLECTION = os.getenv("KNOWLEDGE_COLLECTION", "devops_kb")  # must match corpus/ingest.py
+MAX_DOC_CHARS = 600  # keep prompts small for a small model
+# Cosine distance per hit (0 = same meaning, 2 = opposite). Docs further than this are dropped.
+# 0.3 measured on the dev seed with bge-small: relevant docs scored 0.20-0.22 against the
+# sample failed build, unrelated ones 0.35 and up.
 # Tune it by watching the "[retrieval] candidates" line printed on every run.
-MAX_DISTANCE = float(os.getenv("RETRIEVAL_MAX_DISTANCE", "1.2"))
+MAX_DISTANCE = float(os.getenv("RETRIEVAL_MAX_DISTANCE", "0.3"))
 
 
 def retrieve(queries: list[str] | str, k: int = 3, limit: int = 4) -> list[dict]:
@@ -26,30 +28,10 @@ def retrieve(queries: list[str] | str, k: int = 3, limit: int = 4) -> list[dict]
     one long, noisy query. Returns up to `limit` docs as
     [{"id", "source", "text", "distance"}], closest first.
     """
-    if isinstance(queries, str):
-        queries = [queries]
     try:
-        client = chromadb.HttpClient(host=HOST, port=PORT)
-        collection = client.get_collection(COLLECTION)
-        res = collection.query(query_texts=queries, n_results=k)
-    except Exception as e:
+        ranked = knowledge.search(queries, k=k, limit=50, collection=COLLECTION, max_chars=MAX_DOC_CHARS)
+    except Exception as e:  # noqa: BLE001 - database down, extension missing, model download failed
         print(f"[warn] retrieval unavailable ({type(e).__name__}: {e}); continuing without context")
         return []
-
-    best: dict[str, dict] = {}
-    for qi in range(len(queries)):
-        hits = zip(res["ids"][qi], res["documents"][qi], res["metadatas"][qi], res["distances"][qi])
-        for doc_id, text, meta, dist in hits:
-            meta = meta or {}
-            dist = 0.0 if dist is None else float(dist)
-            if doc_id not in best or dist < best[doc_id]["distance"]:
-                best[doc_id] = {
-                    "id": doc_id,
-                    "source": str(meta.get("source") or meta.get("url") or doc_id),
-                    "text": text[:MAX_DOC_CHARS],
-                    "distance": round(dist, 2),
-                }
-
-    ranked = sorted(best.values(), key=lambda d: d["distance"])
     print(f"[retrieval] candidates (cutoff {MAX_DISTANCE}): {[(d['source'], d['distance']) for d in ranked]}")
     return [d for d in ranked if d["distance"] <= MAX_DISTANCE][:limit]

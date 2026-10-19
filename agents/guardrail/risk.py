@@ -12,13 +12,16 @@ import re
 
 ENVIRONMENTS = ("dev", "staging", "prod")
 LEVELS = ("low", "medium", "high")
-AGENTS = ("dependency_resolver", "diagnostic_rca", "guardrail", "merge_assistant", "orchestrator")
-ACTION_TYPES = ("propose_fix", "rank_causes", "flag_conflict", "approval_request", "approval_result")
+AGENTS = ("dependency_resolver", "diagnostic_rca", "merge_assistant", "code_reviewer",
+          "drift_detection", "guardrail", "orchestrator")
+ACTION_TYPES = ("propose_fix", "rank_causes", "flag_conflict", "review_code", "propose_patch",
+                "drift_report", "promote_model", "rollback_model",
+                "approval_request", "approval_result")
 REQUIRED = ("event_id", "correlation_id", "agent_name", "action_type",
             "environment", "blast_radius", "payload", "timestamp")
 
 # Action types that only give advice and never change anything once approved.
-ADVISORY = {"rank_causes"}
+ADVISORY = {"rank_causes", "review_code", "drift_report"}
 
 # Word edges where "_" and "-" also count as separators (plain \b does not
 # fire inside names like aws_kms_key or app_prod_db).

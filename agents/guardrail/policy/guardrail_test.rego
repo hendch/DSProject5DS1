@@ -54,3 +54,17 @@ test_missing_risk_holds if {
 	d := guardrail.decision with input as {"agent_name": "dependency_resolver", "action_type": "propose_fix", "environment": "dev"}
 	d.decision == "hold"
 }
+
+# The code reviewer and drift agents (added with the orchestrator).
+test_code_review_is_advice if rule_for("code_reviewer", "review_code", "dev", "low") == "advisory_only"
+
+test_patch_to_shared_repo_needs_human if rule_for("code_reviewer", "propose_patch", "staging", "medium") == "staging_medium_human"
+
+test_drift_report_is_advice if rule_for("drift_detection", "drift_report", "prod", "low") == "advisory_only"
+
+test_model_promotion_needs_two_people if {
+	d := guardrail.decision with input as ev("drift_detection", "promote_model", "prod", "high")
+	d.required_approvals == 2
+}
+
+test_drift_cannot_propose_code_fixes if rule_for("drift_detection", "propose_fix", "dev", "low") == "agent_not_allowed_action"
