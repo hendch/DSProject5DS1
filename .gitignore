@@ -11,3 +11,4 @@ outbox/
 
 # downloaded dev tools (OPA for the guardrail playground)
 .tools/
+agents/merge_assistant/test-repo/
