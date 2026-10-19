@@ -190,7 +190,7 @@ scheduler:
 
 server:
   host: 127.0.0.1
-  port: 8000
+  port: 8001   # 8000 is Chroma (docker-compose)
 
 dashboard:
   poll_interval_ms: 2500

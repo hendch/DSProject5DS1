@@ -42,14 +42,14 @@ jobs:
         with:
           ref: ${{ vars.AGENT_REF || 'code-reviewer' }}
           path: agent
-          sparse-checkout: code_review_agent
+          sparse-checkout: agents/code_reviewer
           persist-credentials: false
 
       - name: Install agent and project dependencies
         run: |
           python3 -m venv "$RUNNER_TEMP/venv"
-          "$RUNNER_TEMP/venv/bin/pip" install -q -r agent/code_review_agent/requirements.txt
-          if [ -f target/requirements.txt ]; then "$RUNNER_TEMP/venv/bin/pip" install -q -r target/requirements.txt; fi
+          "$RUNNER_TEMP/venv/bin/pip" install -q -r agent/agents/code_reviewer/requirements.txt
+          if [ -f target/ml_demo/requirements.txt ]; then "$RUNNER_TEMP/venv/bin/pip" install -q -r target/ml_demo/requirements.txt; elif [ -f target/requirements.txt ]; then "$RUNNER_TEMP/venv/bin/pip" install -q -r target/requirements.txt; fi
           echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
 
       - name: Install Claude Code CLI
@@ -73,7 +73,7 @@ jobs:
           LLM_BACKEND: claude-cli
           LLM_MODEL: ${{ vars.LLM_MODEL || 'claude-haiku-5-5' }}
         run: >-
-          python -m code_review_agent.agent
+          python -m agents.code_reviewer.agent
           --repo target --base "$BASE_SHA" --head "$HEAD_SHA"
           --lint "$REPORTS/lint.json" --junit "$REPORTS/junit.xml"
           --out agent-out
@@ -110,7 +110,7 @@ jobs:
         with:
           ref: ${{ vars.AGENT_REF || 'code-reviewer' }}
           path: agent
-          sparse-checkout: code_review_agent
+          sparse-checkout: agents/code_reviewer
           persist-credentials: false
 
       - uses: actions/setup-python@v5
@@ -128,5 +128,5 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/agent
         run: |
           pip install -q pyyaml
-          python -m code_review_agent.publish --repo target --out agent-out \
+          python -m agents.code_reviewer.publish --repo target --out agent-out \
             --pr "$PR_NUMBER" --head-ref "$HEAD_REF" --head-sha "$HEAD_SHA"

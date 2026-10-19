@@ -21,7 +21,7 @@ DEMO = Path(__file__).resolve().parent
 ROOT = DEMO.parent
 sys.path.insert(0, str(ROOT))
 
-from code_review_agent.agent import main as agent_main  # noqa: E402
+from agents.code_reviewer.agent import main as agent_main  # noqa: E402
 
 
 def sh(*cmd: str, cwd: Path) -> str:

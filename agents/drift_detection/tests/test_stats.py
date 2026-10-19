@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from drift_agent.detection import stats
+from agents.drift_detection.detection import stats
 
 rng = np.random.default_rng(0)
 

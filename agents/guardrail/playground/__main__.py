@@ -6,7 +6,7 @@
 Default mode starts everything in-process: a throwaway PostgreSQL 16
 (pgserver), an in-memory Redis server (fakeredis), and OPA with the real
 policy (reloaded live when you edit the .rego file). Every launch starts
-from an empty database. Needs: pip install -r requirements-dev.txt
+from an empty database. Needs: pip install -e ".[dev]" (from the repo root)
 
 Then open http://localhost:8090
 """

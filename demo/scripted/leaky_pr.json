@@ -13,7 +13,7 @@
       "explanation": "The scaler is fitted on all rows before the split, so test-set statistics leak into training.",
       "confidence": "high",
       "suggested_action": "Split first, then fit the scaler on X_train only (e.g. a Pipeline).",
-      "rule_ref": "code_review_agent/rules/mlops_rules.md#L3-L6"
+      "rule_ref": "agents/code_reviewer/rules/mlops_rules.md#L3-L6"
     },
     {
       "category": "reproducibility", "severity": "medium", "file": "train.py", "line": 16,

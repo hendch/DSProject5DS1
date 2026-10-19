@@ -2,9 +2,67 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+# One environment for the whole platform: every agent, the shared library and the
+# orchestrator install together.   pip install -e ".[dev]"
 [project]
-name = "mlops-pipeline-shared"
-version = "0.1.0"
+name = "dsproject-agents"
+version = "0.2.0"
+description = "Multi-agent DevOps/MLOps assistant: specialist agents propose, a guardrail decides, an orchestrator executes."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # shared: config, database, event bus
+    "python-dotenv==1.0.1",
+    "psycopg2-binary==2.9.10",
+    "redis==5.0.8",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    # web: guardrail API, drift dashboard
+    "fastapi==0.143.0",
+    "uvicorn==0.54.0",
+    "httpx==0.27.2",
+    "jinja2>=3.1",
+    # LLM clients (Phase 2 moves every agent to the openai SDK and drops ollama)
+    "openai>=1.40",
+    "ollama==0.3.3",
+    # dependency_resolver
+    "networkx==3.3",
+    "pydot==3.0.1",
+    # diagnostic_rca
+    "chromadb==1.5.9",
+    # merge_assistant
+    "gitpython>=3.1",
+    # code_reviewer
+    "jsonschema>=4.20",
+    "ruff>=0.6",
+    # drift_detection
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "scipy>=1.13",
+    "scikit-learn>=1.5",
+    "joblib>=1.4",
+    "typer>=0.12",
+    "rich>=13.7",
+    "apscheduler>=3.10,<4",
+    "truststore>=0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "fakeredis==2.39.0",  # in-memory Redis for tests
+    "pgserver==0.1.4",    # throwaway PostgreSQL 16 for tests, no Docker needed
+]
+
+[project.scripts]
+drift-agent = "agents.drift_detection.cli:app"
 
 [tool.setuptools.packages.find]
 include = ["shared*", "agents*"]
+
+# Prompts, policies, rules, schemas and web assets that agents read at run time.
+[tool.setuptools.package-data]
+"*" = ["*.txt", "*.json", "*.yaml", "*.rego", "*.md", "*.html", "*.css", "*.js", "*.woff", "*.woff2", "*.tf", "*.log"]
+
+[tool.pytest.ini_options]
+testpaths = ["agents"]

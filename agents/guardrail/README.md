@@ -37,7 +37,7 @@ removed behind the trigger's back.
 ## Try it: the playground (no Docker needed)
 
 ```powershell
-python -m pip install -r requirements-dev.txt
+python -m pip install -e ".[dev]"
 python -m agents.guardrail.playground        # opens http://localhost:8090
 ```
 
@@ -82,7 +82,7 @@ and the policy decision stands, as with any LLM failure.
 
 ```powershell
 docker-compose up -d                     # postgres, redis, chroma, opa
-python -m pip install -r requirements.txt
+python -m pip install -e ".[dev]"
 python -m agents.guardrail.agent         # the consumer loop (Ctrl+C to stop)
 uvicorn agents.guardrail.api:app --port 8080   # approvals API, docs at /docs
 ```
@@ -113,7 +113,7 @@ original `event_id`, so the Orchestrator can resume or stop the run.
 ## Tests
 
 ```powershell
-python -m pip install -r requirements-dev.txt
+python -m pip install -e ".[dev]"
 python -m unittest discover -s agents -t . -p "test_*.py"
 opa test agents/guardrail/policy -v     # or: docker run --rm -v "${PWD}/agents/guardrail/policy:/policy" openpolicyagent/opa:1.20.2 test /policy -v
 ```

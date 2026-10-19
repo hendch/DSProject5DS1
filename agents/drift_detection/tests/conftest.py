@@ -8,8 +8,8 @@ import dataclasses
 
 import pytest
 
-from drift_agent.config import Paths, load_settings
-from drift_agent.service import DriftService
+from agents.drift_detection.config import Paths, load_settings
+from agents.drift_detection.service import DriftService
 
 
 @pytest.fixture(scope="session")

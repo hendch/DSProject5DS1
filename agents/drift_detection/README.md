@@ -10,13 +10,12 @@ changes in production**.
 
 ## Quick start
 
-Requires [uv](https://docs.astral.sh/uv/) (it installs Python 3.12 for you).
+Installed with the rest of the project (one environment for every agent, see the root README).
 
 ```bash
-cd agents/drift_detection   # this folder, from the repo root
-uv sync                      # install dependencies
-uv run drift-agent init      # download the dataset, train model v1 (~10 s)
-uv run drift-agent serve     # dashboard on http://127.0.0.1:8000
+pip install -e ".[dev]"     # from the repo root: installs every agent
+drift-agent init      # download the dataset, train model v1 (~10 s)
+drift-agent serve     # dashboard on http://127.0.0.1:8001
 ```
 
 In the dashboard: pick a scenario, press **Restart**, then **Next batch** (or switch on **Live**).
@@ -26,8 +25,8 @@ In the dashboard: pick a scenario, press **Restart**, then **Next batch** (or sw
 Without a key the agent uses its rule-based investigator, so everything works offline. To use Grok:
 
 ```bash
-cp .env.example .env         # then paste your key from https://console.x.ai into XAI_API_KEY
-uv run drift-agent llm check # verifies the key and lists the model names you can use
+cp .env.example .env         # at the repo root; then paste your key from https://console.x.ai into XAI_API_KEY
+drift-agent llm check # verifies the key and lists the model names you can use
 ```
 
 Set `XAI_MODEL` in `.env` to one of the listed models. The key is read on every investigation, so
@@ -53,12 +52,12 @@ matches the backend. Secrets live only in `.env`.
 From the command line instead:
 
 ```bash
-uv run drift-agent reset --scenario concept
-uv run drift-agent simulate -n 14
-uv run drift-agent report            # the latest incident report
-uv run drift-agent approvals         # what is waiting for a human
-uv run drift-agent approve 3         # promote the challenger (use the id shown)
-uv run drift-agent rollback          # undo: requests a rollback, which also needs approval
+drift-agent reset --scenario concept
+drift-agent simulate -n 14
+drift-agent report            # the latest incident report
+drift-agent approvals         # what is waiting for a human
+drift-agent approve 3         # promote the challenger (use the id shown)
+drift-agent rollback          # undo: requests a rollback, which also needs approval
 ```
 
 ## How it works
@@ -117,7 +116,7 @@ There is no code path for anything else. Old model versions are kept, so every p
 
 ## Evaluation
 
-`uv run drift-agent evaluate` runs every scenario with several seeds in isolated workspaces and
+`drift-agent evaluate` runs every scenario with several seeds in isolated workspaces and
 writes `eval/results/latest.md`. Add `--llm` to benchmark Grok instead of the rule-based
 investigator. Rule-based results (3 seeds, 20 batches, drift from batch 8, labels 2 batches late):
 
@@ -144,7 +143,7 @@ Split: 45% training, 20% reference snapshot, 35% production pool the simulator s
 
 ## API
 
-`uv run drift-agent serve` then open `/docs` for interactive documentation. Main endpoints:
+`drift-agent serve` then open `/docs` for interactive documentation. Main endpoints:
 `GET /api/status`, `GET /api/runs`, `GET /api/runs/{id}`, `POST /api/check`,
 `POST /api/simulate/step`, `POST /api/simulate/reset`, `GET /api/approvals`,
 `POST /api/approvals/{id}/approve`, `POST /api/approvals/{id}/reject`, `POST /api/models/rollback`,
@@ -154,20 +153,21 @@ Split: 45% training, 20% reference snapshot, 35% production pool the simulator s
 
 ```
 config.yaml              every threshold
-src/drift_agent/
+agents/drift_detection/   (Python package agents.drift_detection)
   data/                  dataset download + production simulator with drift scenarios
   model/                 training, evaluation, versioned registry
   detection/             statistics, quality checks, severity
   agent/                 Grok client, tools, prompts, investigation loop, rule-based fallback
   guardrail/             risk policy, challenger training, approvals
   store/                 SQLite (runs, reports, actions, models, audit log)
+  runtime/               generated: dataset, splits, models, database (git-ignored)
   api/                   FastAPI + dashboard (HTML, CSS, Chart.js)
   service.py             wires everything; used by CLI, API, scheduler, evaluation
   evaluation.py          scenario benchmark
 tests/                   statistics unit tests + end-to-end scenario tests
 ```
 
-Run the tests with `uv run pytest`.
+Run the tests with `python -m pytest agents/drift_detection/tests`.
 
 ## Limitations
 

@@ -1,14 +1,33 @@
+# secrets
 .env
+
+# Python
 __pycache__/
 *.pyc
-pgdata/
+*.egg-info/
 venv/
+.venv/
+.pytest_cache/
+
+# local services
+pgdata/
+
+# dependency_resolver (OpenTofu) and its offline outbox
 .terraform/
-outbox/
 *.tfstate*
 .terraform.lock.hcl
-*.egg-info/
+outbox/
+
+# merge_assistant demo repo, rebuilt on every run
+agents/merge_assistant/test-repo/
+
+# drift_detection: generated dataset, splits, models, database and eval results.
+# Anchored on purpose: a bare `data/` would also hide the agent's source package.
+agents/drift_detection/runtime/
+agents/drift_detection/eval/results/
+
+# code_reviewer run output
+agent-out/
 
 # downloaded dev tools (OPA for the guardrail playground)
 .tools/
-agents/merge_assistant/test-repo/

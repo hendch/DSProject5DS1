@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from drift_agent.agent.investigator import extract_json
-from drift_agent.agent.tools import ToolBox
-from drift_agent.detection.schemas import SEVERITY_ORDER
+from agents.drift_detection.agent.investigator import extract_json
+from agents.drift_detection.agent.tools import ToolBox
+from agents.drift_detection.detection.schemas import SEVERITY_ORDER
 
 
 def run(service, scenario, batches, drift_start=4):
