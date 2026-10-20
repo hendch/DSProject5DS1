@@ -240,7 +240,19 @@ ADAPTERS = {
     "code_reviewer": code_reviewer,
     "drift_detection": drift_detection,
 }
-PREPARE = {"pull_request": prepare_pull_request}
+def prepare_deploy(params: dict, ctx: dict) -> None:
+    """A deploy that failed on GitHub: check out the commit so the Dependency Resolver gets its .tf files."""
+    if params.get("source") != "github" or params.get("tf_dir"):
+        return  # scenarios and manual runs bring their own folder
+    from agents.orchestrator import github
+
+    root = github.checkout_commit(params["repo"], params["sha"], Path(ctx["workdir"]))
+    tf_dir = github.find_tf_dir(root, params.get("log_text", ""))
+    if tf_dir:
+        params["tf_dir"] = str(tf_dir)
+
+
+PREPARE = {"pull_request": prepare_pull_request, "deploy_failed": prepare_deploy}
 
 # Conditional steps (catalog ROUTES "when"): run only if earlier steps found this.
 CONDITIONS = {

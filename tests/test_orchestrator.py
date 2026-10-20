@@ -3,6 +3,7 @@ Agents are replaced by stubs so the tests are fast and need no LLM; their real
 behaviour is covered by each agent's own tests."""
 import unittest
 import uuid
+from pathlib import Path
 from unittest import mock
 
 from fastapi.testclient import TestClient
@@ -304,6 +305,27 @@ class GitHubWatcher(DbTestCase):
         self.assertEqual(trigger["route"], "build_failed")
         self.assertIn("ERROR tests failed", trigger["params"]["log_text"])
         self.assertNotIn("ghp_xxxx", trigger["params"]["log_text"])
+
+    def test_failed_tofu_step_is_routed_as_a_deploy(self):
+        self.fake.runs.append(gh_run(2, "b2", "failure", "2026-10-02T10:00:00Z"))
+        with mock.patch.object(github, "failed_log",
+                               return_value="Run tofu validate\nError: Cycle: aws_iam_role.a, aws_iam_role_policy.a"):
+            github.sync(orchestrator=self.orch)
+        trigger = self.orch.start.call_args.args[0]
+        self.assertEqual(trigger["route"], "deploy_failed")
+        self.assertTrue(trigger["title"].startswith("Deploy failed"))
+        self.assertEqual((trigger["params"]["source"], trigger["params"]["repo"]), ("github", "o/r"))
+
+    def test_tf_folder_named_in_the_log_is_chosen(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for d in ("modules/net", "infra"):
+                (root / d).mkdir(parents=True)
+                (root / d / "main.tf").write_text("")
+            self.assertEqual(github.find_tf_dir(root, "Error in infra/main.tf"), root / "infra")
+            self.assertEqual(github.find_tf_dir(root, "no folder named"), root / "infra")  # shallowest first
+            self.assertIsNone(github.find_tf_dir(root / "modules" / "net" / "nothing"))
 
     def test_recovery_is_announced(self):
         self.fake.runs.append(gh_run(2, "b2", "failure", "2026-10-02T10:00:00Z"))

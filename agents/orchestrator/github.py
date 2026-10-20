@@ -546,9 +546,12 @@ def investigate(kind: str, key, orchestrator, requested_by: str | None = None, r
     if kind == "commit":
         if item["ci"] != "failure" or not item.get("ci_run_id"):
             raise GitHubError(409, "this commit's CI didn't fail: nothing to investigate")
-        trigger = {"title": f"CI failed: {item['title']}", "source": "github", "route": "build_failed",
+        log = failed_log(repo, item["ci_run_id"])
+        deploy = bool(IAC_LOG.search(log))  # an OpenTofu/Terraform step failed: a deployment
+        trigger = {"title": f"{'Deploy' if deploy else 'CI'} failed: {item['title']}", "source": "github",
+                   "route": "deploy_failed" if deploy else "build_failed",
                    "sha": item["sha"], "html_url": item.get("run_url") or item.get("html_url"),
-                   "params": {"log_text": failed_log(repo, item["ci_run_id"]), "environment": "dev",
+                   "params": {"log_text": log, "environment": "dev", "source": "github", "repo": repo,
                               "sha": item["sha"], "branch": item.get("branch")}}
     else:
         pr = _get(f"/repos/{repo}/pulls/{key}")
@@ -560,6 +563,33 @@ def investigate(kind: str, key, orchestrator, requested_by: str | None = None, r
     run_id = orchestrator.start(trigger, requested_by=requested_by)
     set_item_run(repo, kind, str(key), run_id)
     return run_id
+
+
+IAC_LOG = re.compile(r"\b(tofu|terraform)\b", re.I)
+
+
+def checkout_commit(repo: str, sha: str, workdir: Path) -> Path:
+    """Shallow, read-only checkout of one commit (for its .tf files). Token as in checkout_pull_request."""
+    dest = Path(workdir) / "commit"
+    auth = ["-c", f"http.extraHeader=Authorization: Bearer {token()}"] if token() else []
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    for args, cwd in ((["init", "-q", str(dest)], None),
+                      (["fetch", "-q", "--depth", "1", f"https://github.com/{repo}.git", sha], dest),
+                      (["checkout", "-q", "FETCH_HEAD"], dest)):
+        subprocess.run(["git", *auth, *args], cwd=cwd, check=True, capture_output=True, text=True,
+                       timeout=300, env=env)
+    return dest
+
+
+def find_tf_dir(root: Path, log: str = "") -> Path | None:
+    """The folder with .tf files that the failing log talks about, else the first one found."""
+    dirs = sorted({p.parent for p in Path(root).rglob("*.tf") if ".terraform" not in p.parts},
+                  key=lambda d: len(d.parts))
+    for d in dirs:
+        rel = d.relative_to(root).as_posix()
+        if rel != "." and rel in log:
+            return d
+    return dirs[0] if dirs else None
 
 
 def checkout_pull_request(params: dict, workdir: Path) -> tuple[Path, str, str]:
