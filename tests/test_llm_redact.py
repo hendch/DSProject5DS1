@@ -82,15 +82,16 @@ class Redaction(unittest.TestCase):
 
 class ProfileOptions(unittest.TestCase):
     def test_reasoning_model_options(self):
-        env = {"DIAGNOSTIC_RCA_LLM_JSON_MODE": "false", "DIAGNOSTIC_RCA_LLM_MAX_TOKENS": "2500"}
+        env = {"DIAGNOSTIC_RCA_LLM_JSON_MODE": "false", "DIAGNOSTIC_RCA_LLM_MAX_TOKENS": "2500",
+               "LANGSMITH_TRACING": "false"}  # tracing would wrap the mock client
         with mock.patch.dict(os.environ, env, clear=False):
             p = llm.profile("diagnostic_rca")
-        self.assertEqual((p.json_mode, p.max_tokens), (False, 2500))
-        model = llm.LLM(p)
-        reply = mock.Mock()
-        reply.chat.completions.create.return_value.choices = [mock.Mock(message=mock.Mock(content='{"ok": 1}'))]
-        with mock.patch("openai.OpenAI", return_value=reply):
-            model.chat("x", json_mode=True, max_tokens=100)
+            self.assertEqual((p.json_mode, p.max_tokens), (False, 2500))
+            model = llm.LLM(p)
+            reply = mock.Mock()
+            reply.chat.completions.create.return_value.choices = [mock.Mock(message=mock.Mock(content='{"ok": 1}'))]
+            with mock.patch("openai.OpenAI", return_value=reply):
+                model.chat("x", json_mode=True, max_tokens=100)
         kwargs = reply.chat.completions.create.call_args.kwargs
         self.assertNotIn("response_format", kwargs)  # JSON mode off for this profile
         self.assertEqual(kwargs["max_tokens"], 2500)

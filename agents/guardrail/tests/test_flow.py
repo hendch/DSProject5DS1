@@ -23,10 +23,14 @@ POLICY_DIR = Path(__file__).resolve().parents[1] / "policy"
 _opa = {}
 
 
+TOOLS = Path(__file__).resolve().parents[3] / ".tools"  # where shared.devstack keeps its OPA
+
+
 def setUpModule():
-    binary = os.getenv("OPA_BIN") or shutil.which("opa")
+    binary = (os.getenv("OPA_BIN") or shutil.which("opa")
+              or next((str(p) for p in (TOOLS / "opa.exe", TOOLS / "opa") if p.exists()), None))
     if not binary:
-        raise unittest.SkipTest("no opa binary: set OPA_BIN or put opa on PATH")
+        raise unittest.SkipTest("no opa binary: set OPA_BIN, put opa on PATH or in .tools/")
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
