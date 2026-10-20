@@ -1,14 +1,13 @@
 import json, os, re, sys, uuid
 from pathlib import Path
 
-import ollama
 from dotenv import load_dotenv
 
 from agents.diagnostic_rca.retrieval import retrieve
 from shared.events import publish_and_log
+from shared.llm import LLMUnavailable, for_agent
 
 load_dotenv()
-MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 BASE = Path(__file__).parent
 DEFAULT_LOG = BASE / "logs/sample_failed_build.log"
 MAX_LOG_CHARS = 3000
@@ -60,18 +59,38 @@ def user_message(context: str, log: str) -> str:
     return f"REFERENCE DOCUMENTS:\n{context}\n\nFAILED BUILD LOG:\n{log}\n\nJSON answer:"
 
 
+def llm():
+    """This agent's model (DIAGNOSTIC_RCA_LLM_* in .env, else the shared default)."""
+    return for_agent("diagnostic_rca")
+
+
 def chat_json(messages: list[dict], temperature: float = 0, retries: int = 2) -> dict:
+    """Raises LLMUnavailable when the model can't be reached (callers fall back to rules)."""
+    model = llm()
     for attempt in range(retries + 1):
-        resp = ollama.chat(
-            model=MODEL, format="json",
-            messages=messages,
-            options={"temperature": temperature, "num_ctx": 4096},
-        )
+        text = model.chat(messages, json_mode=True, temperature=temperature)
         try:
-            return json.loads(resp["message"]["content"])
+            return json.loads(text)
         except json.JSONDecodeError:
             print(f"[warn] model returned invalid JSON (attempt {attempt + 1}/{retries + 1})")
     return {}
+
+
+def rank_by_rules(error_context: str, docs: list[dict]) -> dict:
+    """Fallback without an LLM: the distinct error lines, most severe first, each matched
+    to the closest retrieved document when one is relevant."""
+    lines = build_queries(error_context, max_queries=MAX_CAUSES)
+    weight = lambda l: (2 if re.search(r"error|exception|fatal|refused|denied", l, re.I) else 1)
+    lines = sorted(lines, key=weight, reverse=True)
+    causes = []
+    for i, line in enumerate(lines):
+        doc = docs[i] if i < len(docs) else None
+        causes.append({"cause": f"{line} (from the log)" + (f"; see: {doc['text'][:160]}" if doc else ""),
+                       "confidence": round(max(0.2, 0.6 - 0.15 * i), 2),
+                       "source": doc["source"] if doc else "none"})
+    summary = (f"The build failed; the log reports: {lines[0]}" if lines
+               else "The build failed but the log shows no recognisable error line.")
+    return normalize({"failure_summary": summary, "ranked_causes": causes}, {d["source"] for d in docs})
 
 
 def normalize(result: dict, valid_sources: set[str]) -> dict:
@@ -119,13 +138,25 @@ def rank_causes(error_context: str, docs: list[dict]) -> dict:
     return normalize({"failure_summary": "The model kept echoing example answers instead of analysing the log."}, sources)
 
 
+def analyze(log_text: str) -> dict:
+    """Diagnose a build log without publishing anything (the orchestrator publishes).
+    Returns the rank_causes payload plus how it was produced."""
+    error_context = extract_error_context(clean_log(log_text))
+    docs = retrieve(build_queries(error_context))
+    model = llm()
+    try:
+        result, source = rank_causes(error_context, docs), "llm"
+    except LLMUnavailable as e:
+        print(f"[warn] LLM unavailable ({e}); ranking causes with rules")
+        result, source = rank_by_rules(error_context, docs), "rules"
+    return {**result, "retrieved": [(d["source"], d.get("distance")) for d in docs],
+            "sources": {"ranking": source}, "model": model.label if source == "llm" else None}
+
+
 def run(log_path: str | None = None):
     correlation_id = str(uuid.uuid4())
     path = Path(log_path) if log_path else DEFAULT_LOG
-    log = clean_log(path.read_text(errors="replace"))
-    error_context = extract_error_context(log)
-    docs = retrieve(build_queries(error_context))
-    result = rank_causes(error_context, docs)
+    result = analyze(path.read_text(errors="replace"))
 
     top = result["ranked_causes"][0]
     action_id = publish_and_log(
@@ -135,10 +166,10 @@ def run(log_path: str | None = None):
         input_summary=result["failure_summary"][:300],
     )
 
-    print(f"\nLog: {path.name}\nSummary: {result['failure_summary']}\nRetrieved docs: {[(d['source'], d.get('distance')) for d in docs]}")
+    print(f"\nLog: {path.name}\nSummary: {result['failure_summary']}\nRetrieved docs: {result['retrieved']}")
     for i, c in enumerate(result["ranked_causes"], 1):
         print(f"  {i}. [{c['confidence']:.2f}] {c['cause']} (source: {c['source']})")
-    print(f"Logged as action {action_id}\n")
+    print(f"Logged as action {action_id} (ranking by {result['sources']['ranking']})\n")
 
 
 if __name__ == "__main__":

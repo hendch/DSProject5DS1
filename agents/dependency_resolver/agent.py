@@ -2,11 +2,11 @@ import io, json, os, re, shutil, subprocess, time, uuid
 from pathlib import Path
 
 import networkx as nx
-import ollama
 from dotenv import load_dotenv
 from networkx.drawing.nx_pydot import read_dot
 
 from shared.events import publish_and_log
+from shared.llm import for_agent
 
 try:  # works as `python -m agents.dependency_resolver.agent` and as a direct script
     from agents.dependency_resolver import fallback
@@ -14,7 +14,6 @@ except ImportError:  # pragma: no cover
     import fallback
 
 load_dotenv()
-MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 BASE = Path(__file__).parent
 VALID = ["cross_layer_split", "modeling_mistake", "sequencing_fix", "manual_seed"]
 LLM_RETRIES = int(os.getenv("LLM_RETRIES", "2"))  # extra attempts after the first
@@ -89,13 +88,17 @@ def extract_resource_blocks(tf_file: str, names: list[str]) -> str:
     return "\n\n".join(blocks) if blocks else "Resources: " + ", ".join(names)
 
 
+def complete(prompt: str) -> str:
+    """One call to this agent's model (DEPENDENCY_RESOLVER_LLM_* in .env, else the default)."""
+    return for_agent("dependency_resolver").chat(prompt)
+
+
 def chat(prompt: str) -> str:
-    """Call Ollama with retries + backoff. Raises on final failure (callers fall back)."""
+    """Call the LLM with retries + backoff. Raises on final failure (callers fall back)."""
     last = None
     for attempt in range(LLM_RETRIES + 1):
         try:
-            resp = ollama.chat(model=MODEL, messages=[{"role": "user", "content": prompt}])
-            text = resp["message"]["content"].strip()
+            text = complete(prompt).strip()
             if text:
                 return text
             last = RuntimeError("empty LLM response")
@@ -145,26 +148,37 @@ def publish_safely(**kwargs) -> tuple[str, str]:
         return action_id, "outbox"
 
 
-def run(tf_dir: str, tf_file: str):
-    correlation_id = str(uuid.uuid4())
+def analyze(tf_dir: str, tf_file: str) -> list[dict]:
+    """Find, classify and explain every cycle without publishing (the orchestrator
+    publishes). Returns one propose_fix payload per cycle."""
     cycles, cycle_source = find_cycles(tf_dir)
-    if not cycles:
-        print("No circular dependencies found.")
-        return
+    proposals = []
     for cycle in cycles:
         code = extract_resource_blocks(tf_file, cycle)
         category, cat_source = classify_cycle(code)
         explanation, exp_source = explain_fix(category, code, cycle)
+        proposals.append({"file": Path(tf_file).name, "cycle": cycle, "category": category,
+                          "proposed_diff": explanation,
+                          "sources": {"detection": cycle_source, "classification": cat_source,
+                                      "explanation": exp_source}})
+    return proposals
+
+
+def run(tf_dir: str, tf_file: str):
+    correlation_id = str(uuid.uuid4())
+    proposals = analyze(tf_dir, tf_file)
+    if not proposals:
+        print("No circular dependencies found.")
+        return
+    for payload in proposals:
         action_id, sink = publish_safely(
-            agent_name="dependency_resolver", action_type="propose_fix",
-            payload={"cycle": cycle, "category": category, "proposed_diff": explanation,
-                     "sources": {"detection": cycle_source, "classification": cat_source,
-                                 "explanation": exp_source}},
-            correlation_id=correlation_id, category=category, input_summary=str(cycle),
+            agent_name="dependency_resolver", action_type="propose_fix", payload=payload,
+            correlation_id=correlation_id, category=payload["category"], input_summary=str(payload["cycle"]),
         )
-        print(f"\nCycle: {cycle} (detected via {cycle_source})\n"
-              f"Category: {category} ({cat_source})\n"
-              f"Explanation ({exp_source}): {explanation}\n"
+        src = payload["sources"]
+        print(f"\nCycle: {payload['cycle']} (detected via {src['detection']})\n"
+              f"Category: {payload['category']} ({src['classification']})\n"
+              f"Explanation ({src['explanation']}): {payload['proposed_diff']}\n"
               f"Logged as action {action_id} via {sink}\n")
 
 

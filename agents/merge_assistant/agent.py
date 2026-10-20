@@ -1,18 +1,18 @@
 import os
+import re
 import shutil
 import tempfile
 import uuid
 from pathlib import Path
 
-import ollama
 from git import Repo
 from git.exc import GitCommandError
 
 from shared.events import publish_and_log
+from shared.llm import LLMUnavailable, for_agent
 
 BASE = Path(__file__).parent
 DEMO_REPO = BASE / "test-repo"
-MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
 
 
 def make_demo_repo(path: Path) -> None:
@@ -60,8 +60,34 @@ def propose_resolution(conflicts: dict) -> str:
         "For each file, give a short explanation of the conflict and the "
         "resolved content you suggest. Be brief.\n\n" + text
     )
-    resp = ollama.chat(model=MODEL, messages=[{"role": "user", "content": prompt}])
-    return resp["message"]["content"].strip()
+    return for_agent("merge_assistant").chat(prompt)
+
+
+def describe_conflicts(conflicts: dict) -> str:
+    """Fallback without an LLM: show both sides of every conflicting hunk for a human."""
+    parts = []
+    for f, content in conflicts.items():
+        for ours, theirs in re.findall(r"<<<<<<< [^\n]*\n(.*?)=======\n(.*?)>>>>>>> [^\n]*", content, re.DOTALL):
+            parts.append(f"{f}: ours -> {ours.strip()!r} | theirs -> {theirs.strip()!r}")
+    if not parts:
+        return "[no LLM available] Resolve the conflicted files by hand."
+    return "[no LLM available] Resolve by hand, choosing per hunk:\n" + "\n".join(parts)
+
+
+def analyze(repo_path: Path, branch_a: str, branch_b: str) -> dict | None:
+    """Detect conflicts and propose a resolution without publishing (the orchestrator
+    publishes). Returns the flag_conflict payload, or None when the merge is clean."""
+    conflicts = detect_conflicts(repo_path, branch_a, branch_b)
+    if not conflicts:
+        return None
+    try:
+        resolution, source = propose_resolution(conflicts), "llm"
+    except LLMUnavailable as e:
+        print(f"[warn] LLM unavailable ({e}); describing the conflicts instead")
+        resolution, source = describe_conflicts(conflicts), "rules"
+    return {"branch_a": branch_a, "branch_b": branch_b,
+            "conflict_summary": f"{len(conflicts)} conflicted file(s): {', '.join(conflicts)}",
+            "proposed_resolution": resolution, "files": list(conflicts), "sources": {"resolution": source}}
 
 
 def emit(correlation_id, branch_a, branch_b, summary, resolution, conflicts):
@@ -83,15 +109,14 @@ def emit(correlation_id, branch_a, branch_b, summary, resolution, conflicts):
 
 
 def run(repo_path: Path, branch_a: str, branch_b: str) -> None:
-    conflicts = detect_conflicts(repo_path, branch_a, branch_b)
-    if not conflicts:
+    result = analyze(repo_path, branch_a, branch_b)
+    if result is None:
         print("No conflicts, nothing to flag.")
         return
-    resolution = propose_resolution(conflicts)
-    summary = f"{len(conflicts)} conflicted file(s): {', '.join(conflicts)}"
-    emit(str(uuid.uuid4()), branch_a, branch_b, summary, resolution, conflicts)
-    print(summary)
-    print(resolution)
+    emit(str(uuid.uuid4()), branch_a, branch_b, result["conflict_summary"],
+         result["proposed_resolution"], result["files"])
+    print(result["conflict_summary"])
+    print(result["proposed_resolution"])
 
 
 if __name__ == "__main__":

@@ -61,6 +61,54 @@ def opa_binary() -> str:
     return str(target)
 
 
+PREFIXES = ("agents-pg-", "opsagents-pg-", "guardrail-pg-")
+OWNER_FILE = "owner.pid"
+
+
+def _alive(pid: int) -> bool:
+    if os.name == "nt":
+        import ctypes
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return code.value == 259  # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _owner_alive(folder: Path) -> bool:
+    try:
+        return _alive(int((folder / OWNER_FILE).read_text().strip()))
+    except (OSError, ValueError):
+        return False
+
+
+def stop_stale_databases() -> int:
+    """Stop and delete embedded databases left behind by earlier runs whose window was
+    closed instead of stopped with Ctrl+C (their PostgreSQL keeps running otherwise).
+    A database whose owning process is still running is left alone."""
+    import pgserver
+
+    pg_ctl = Path(pgserver.__file__).parent / "pginstall" / "bin" / ("pg_ctl.exe" if os.name == "nt" else "pg_ctl")
+    stopped = 0
+    for folder in Path(tempfile.gettempdir()).iterdir():
+        if not folder.is_dir() or not folder.name.startswith(PREFIXES) or _owner_alive(folder):
+            continue
+        if (folder / "postmaster.pid").exists():
+            subprocess.run([str(pg_ctl), "stop", "-D", str(folder), "-m", "fast"], capture_output=True, timeout=60)
+            stopped += 1
+        shutil.rmtree(folder, ignore_errors=True)
+    if stopped:
+        print(f"[devstack] stopped {stopped} database(s) left running by earlier sessions")
+    return stopped
+
+
 def start_postgres(prefix: str = "agents-pg-") -> str:
     """A fresh PostgreSQL with every migration applied. Returns its URL."""
     import psycopg2
@@ -68,8 +116,14 @@ def start_postgres(prefix: str = "agents-pg-") -> str:
 
     from shared.migrate import migrate
 
+    try:
+        stop_stale_databases()
+    except Exception as e:  # noqa: BLE001 - cleanup must never block starting
+        print(f"[devstack] could not clean up old databases: {e}")
     print("[devstack] starting PostgreSQL 16 (pgserver)...")
-    pg = pgserver.get_server(tempfile.mkdtemp(prefix=prefix), cleanup_mode="stop")
+    data_dir = Path(tempfile.mkdtemp(prefix=prefix))
+    pg = pgserver.get_server(str(data_dir), cleanup_mode="stop")
+    (data_dir / OWNER_FILE).write_text(str(os.getpid()))
     admin = pg.get_uri()
     conn = psycopg2.connect(admin)
     conn.autocommit = True

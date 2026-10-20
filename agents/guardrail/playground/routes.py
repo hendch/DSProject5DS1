@@ -9,7 +9,8 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from agents.guardrail import agent, llm_client, llm_judge, policy_client, store
+from agents.guardrail import agent, llm_judge, policy_client, store
+from shared.llm import for_agent
 from agents.guardrail.playground.scenarios import BY_ID, SCENARIOS
 from shared.events import publish_and_log
 from shared.events import list_events, publish
@@ -177,7 +178,7 @@ def llm_status() -> tuple[bool, str]:
     """Cached for 60 s: for hosted APIs this is a real HTTP call (no tokens spent)."""
     import time
     if time.monotonic() - _llm_check["at"] > 60:
-        _llm_check.update(at=time.monotonic(), result=llm_client.check())
+        _llm_check.update(at=time.monotonic(), result=for_agent("guardrail").check())
     return _llm_check["result"]
 
 
@@ -191,7 +192,7 @@ def status():
         "bus": _up(lambda: list_events(limit=1)),
         "opa": _up(lambda: httpx.get(f"{state['real_opa_url']}/health", timeout=0.5).raise_for_status()),
         "opa_outage": policy_client.OPA_URL == DEAD_OPA,
-        "llm_ok": llm_ok, "llm_error": llm_error, "llm_label": llm_client.label(),
+        "llm_ok": llm_ok, "llm_error": llm_error, "llm_label": for_agent("guardrail").label,
         "llm_enabled": llm_judge.ENABLED,
         "consumer": bool(consumer and consumer.is_alive()),
     }

@@ -13,15 +13,17 @@ from shared.testing import DbTestCase
 class Migrations(DbTestCase):
     def test_everything_applied_once_and_rerun_is_a_no_op(self):
         applied = [r[0] for r in self.sql("SELECT version FROM schema_migrations ORDER BY version")]
-        self.assertEqual(applied, ["001_core", "002_guardrail", "003_events", "004_orchestrator", "005_knowledge"])
+        self.assertEqual(applied, ["001_core", "002_guardrail", "003_events", "004_orchestrator", "005_knowledge",
+                                   "006_github_alerts"])
         self.assertEqual(migrate(self.db_uri, quiet=True), [])
 
     def test_all_areas_exist(self):
         tables = {r[0] for r in self.sql("""SELECT table_schema || '.' || table_name FROM information_schema.tables
-                                            WHERE table_schema IN ('public', 'orchestrator', 'knowledge')""")}
+                                            WHERE table_schema IN ('public', 'orchestrator', 'knowledge', 'github')""")}
         for t in ("public.actions", "public.approvals", "public.reasoning_logs", "public.events",
                   "public.event_receipts", "orchestrator.runs", "orchestrator.run_steps",
-                  "orchestrator.run_actions", "knowledge.documents"):
+                  "orchestrator.run_actions", "knowledge.documents", "public.alerts", "public.app_settings",
+                  "github.items", "github.seen"):
             self.assertIn(t, tables)
 
 

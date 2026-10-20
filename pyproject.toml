@@ -55,7 +55,7 @@ dev = [
 drift-agent = "agents.drift_detection.cli:app"
 
 [tool.setuptools.packages.find]
-include = ["shared*", "agents*"]
+include = ["shared*", "agents*", "app*"]
 
 # Prompts, policies, rules, schemas and web assets that agents read at run time.
 [tool.setuptools.package-data]

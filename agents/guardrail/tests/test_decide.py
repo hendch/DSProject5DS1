@@ -13,7 +13,7 @@ HOLD = {"decision": "hold", "rule": "high_always_human", "required_approvals": 1
 
 
 def llm_says(answer):
-    return mock.patch.object(llm_judge.llm_client, "chat_json", return_value=answer)
+    return mock.patch.object(llm_judge, "_ask", return_value=answer)
 
 
 class PolicyClient(unittest.TestCase):
@@ -41,7 +41,7 @@ class LlmOnlyEscalates(unittest.TestCase):
         self.addCleanup(p.stop)
 
     def decide(self, verdict, answer=None, error=None, **ev):
-        judge = (mock.patch.object(llm_judge.llm_client, "chat_json", side_effect=error) if error
+        judge = (mock.patch.object(llm_judge, "_ask", side_effect=error) if error
                  else llm_says(answer))
         with mock.patch.object(policy_client, "evaluate", return_value=dict(verdict)), judge, \
              mock.patch.object(llm_judge, "ENABLED", True):
@@ -64,7 +64,7 @@ class LlmOnlyEscalates(unittest.TestCase):
         self.assertIsNone(llm)
 
     def test_breaker_skips_the_llm_after_a_failure(self):
-        failing = mock.patch.object(llm_judge.llm_client, "chat_json", side_effect=RuntimeError("HTTP 429"))
+        failing = mock.patch.object(llm_judge, "_ask", side_effect=RuntimeError("HTTP 429"))
         with failing as chat, mock.patch.object(llm_judge, "ENABLED", True):
             self.assertIsNone(llm_judge.review(event(), "low", []))
             self.assertIsNone(llm_judge.review(event(), "low", []))

@@ -57,7 +57,7 @@ class Heuristics(unittest.TestCase):
             self.assertIn(fallback.heuristic_classify(code), agent.VALID)
 
     def test_llm_down_uses_heuristics(self):
-        with mock.patch.object(agent.ollama, "chat", side_effect=ConnectionError("refused")), \
+        with mock.patch.object(agent, "complete", side_effect=ConnectionError("refused")), \
              mock.patch.object(agent, "LLM_RETRIES", 0):
             cat, src = agent.classify_cycle("aws_iam_role policy")
             exp, esrc = agent.explain_fix(cat, "code", ["a.b", "c.d"])
@@ -108,7 +108,7 @@ class EndToEndNoInfra(unittest.TestCase):
         d = tf_dir(CYCLE_TF)
         out = Path(tempfile.mkdtemp()) / "o.jsonl"
         with mock.patch.object(agent, "tf_binary", side_effect=RuntimeError("no tofu")), \
-             mock.patch.object(agent.ollama, "chat", side_effect=ConnectionError("x")), \
+             mock.patch.object(agent, "complete", side_effect=ConnectionError("x")), \
              mock.patch.object(agent, "LLM_RETRIES", 0), \
              mock.patch.object(agent, "publish_and_log", side_effect=ConnectionError("x")), \
              mock.patch.object(fallback, "OUTBOX", out):
