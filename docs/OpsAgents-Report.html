@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpsAgents Technical Report</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Public+Sans:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: an engineering report. Sticky contents rail on wide screens, one reading column, tables for anything with more than two facts per row. */
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --ink: #15181d;
+  --muted: #5a6371;
+  --line: #dde1e7;
+  --accent: #d9530b;
+  --accent-soft: #fdeee4;
+  --ok: #1d7a46; --ok-bg: #e3f4ea;
+  --warn: #9a6200; --warn-bg: #fbf0d9;
+  --bad: #b42318; --bad-bg: #fde8e6;
+  --code-bg: #eef0f3;
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Public Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115; --surface: #171a20; --ink: #e7e9ed; --muted: #9aa3b0; --line: #2a2f38;
+    --accent: #ff7a2e; --accent-soft: #2b1a10;
+    --ok: #4cc98a; --ok-bg: #12291d; --warn: #f0b544; --warn-bg: #2d2410; --bad: #ff7b6e; --bad-bg: #321613;
+    --code-bg: #1e222a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1115; --surface: #171a20; --ink: #e7e9ed; --muted: #9aa3b0; --line: #2a2f38;
+  --accent: #ff7a2e; --accent-soft: #2b1a10;
+  --ok: #4cc98a; --ok-bg: #12291d; --warn: #f0b544; --warn-bg: #2d2410; --bad: #ff7b6e; --bad-bg: #321613;
+  --code-bg: #1e222a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 16px; line-height: 1.6; }
+.wrap {
+  max-width: 1140px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 80px;
+  display: grid; grid-template-columns: 1fr; gap: 40px;
+}
+@media (min-width: 1000px) { .wrap { grid-template-columns: 210px minmax(0, 1fr); gap: 56px; } }
+nav.toc { display: none; }
+@media (min-width: 1000px) {
+  nav.toc { display: block; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 24px); align-self: start; font-size: 14px; }
+}
+nav.toc p { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; border-left: 1px solid var(--line); }
+nav.toc a { display: block; padding: 4px 0 4px 14px; color: var(--muted); text-decoration: none; margin-left: -1px; border-left: 2px solid transparent; }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--ink); border-left-color: var(--accent); outline: none; }
+main { min-width: 0; max-width: 800px; }
+header.top { display: grid; gap: 14px; padding-bottom: 28px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; color: var(--accent); letter-spacing: .04em; }
+h1 { font-family: var(--font-display); font-size: clamp(32px, 5vw, 46px); line-height: 1.08; margin: 0; letter-spacing: -.015em; text-wrap: balance; }
+.lede { font-size: 18px; color: var(--muted); margin: 0; max-width: 62ch; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px; }
+.meta span { font-family: var(--font-mono); font-size: 12px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); }
+section { padding-top: 44px; scroll-margin-top: 16px; }
+h2 { font-family: var(--font-display); font-size: 27px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -.01em; text-wrap: balance; }
+h2 small { display: block; font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-weight: 400; letter-spacing: .04em; margin-bottom: 6px; }
+h3 { font-size: 18px; margin: 28px 0 6px; text-wrap: balance; }
+p { margin: 10px 0; max-width: 68ch; }
+ul.plain { padding-left: 20px; margin: 10px 0; } ul.plain li { margin: 4px 0; max-width: 66ch; }
+code { font-family: var(--font-mono); font-size: .86em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+pre.cmd { font-family: var(--font-mono); font-size: 13.5px; background: var(--code-bg); border: 1px solid var(--line); padding: 12px 14px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
+.table-wrap { overflow-x: auto; margin: 14px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+td.mono, .mono { font-family: var(--font-mono); font-size: 13px; }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.ok { color: var(--ok); background: var(--ok-bg); }
+.warn { color: var(--warn); background: var(--warn-bg); }
+.bad { color: var(--bad); background: var(--bad-bg); }
+.neutral { color: var(--muted); background: var(--code-bg); }
+.issues { display: grid; gap: 12px; margin: 16px 0; padding: 0; list-style: none; }
+.issue { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--sev); border-radius: 8px; padding: 14px 16px; }
+.issue.s-bad { --sev: var(--bad); } .issue.s-warn { --sev: var(--warn); } .issue.s-neutral { --sev: var(--line); }
+.issue h4 { margin: 0 0 4px; font-size: 16px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.issue p { margin: 4px 0; font-size: 15px; }
+.issue .fix { color: var(--muted); }
+.issue .fix b { color: var(--ink); }
+.group-label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; margin: 26px 0 0; }
+.agents { display: grid; gap: 14px; margin-top: 16px; }
+.agent { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; min-width: 0; }
+.agent-head { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; justify-content: space-between; }
+.agent-head h3 { margin: 0; font-size: 19px; font-family: var(--font-display); }
+.agent-head .owner { font-size: 13px; color: var(--muted); }
+.agent dl { display: grid; grid-template-columns: 1fr; gap: 2px 18px; margin: 12px 0 0; font-size: 14.5px; }
+@media (min-width: 620px) { .agent dl { grid-template-columns: 130px minmax(0, 1fr); } }
+.agent dt { color: var(--muted); font-weight: 600; font-size: 13px; padding-top: 6px; }
+.agent dd { margin: 0; padding-top: 4px; min-width: 0; }
+@media (min-width: 620px) { .agent dt, .agent dd { padding-top: 6px; border-top: 1px dashed var(--line); } .agent dt:first-of-type, .agent dd:first-of-type { border-top: 0; } }
+.diagram { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; overflow-x: auto; margin: 16px 0; }
+.diagram pre.mermaid { margin: 0; background: none; text-align: center; }
+.note { background: var(--accent-soft); border-radius: 8px; padding: 12px 16px; margin: 16px 0; font-size: 15px; }
+.note b { color: var(--accent); }
+ol.steps { padding-left: 22px; } ol.steps li { margin: 6px 0; max-width: 66ch; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 18px 0 4px; }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.kpi b { display: block; font-family: var(--font-display); font-size: 26px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.kpi span { font-size: 13px; color: var(--muted); }
+a { color: var(--accent); }
+footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+  <p>Contents</p>
+  <ol>
+    <li><a href="#status">Status at a glance</a></li>
+    <li><a href="#broken">What is not working</a></li>
+    <li><a href="#overview">How it fits together</a></li>
+    <li><a href="#run">Life of a run</a></li>
+    <li><a href="#routing">Routing</a></li>
+    <li><a href="#agents">The agents</a></li>
+    <li><a href="#guardrail">The Guardrail</a></li>
+    <li><a href="#execution">After approval</a></li>
+    <li><a href="#github">GitHub</a></li>
+    <li><a href="#models">Models</a></li>
+    <li><a href="#data">Data and plumbing</a></li>
+    <li><a href="#run-it">Running it</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="top">
+  <div class="eyebrow">DSProject5DS1 · branch orchestrator · commit 8feec36</div>
+  <h1>OpsAgents: how the agents work, and what is left</h1>
+  <p class="lede">Five specialist agents, one orchestrator and one guardrail, sharing a single PostgreSQL database and a web dashboard. This report covers what works today, what does not, and how a trigger turns into an approved, audited action.</p>
+  <div class="meta"><span>20 Oct 2026</span><span>149 tests pass</span><span>18 skipped (drift)</span><span>20/20 policy tests</span></div>
+</header>
+
+<section id="status">
+  <h2><small>01</small>Status at a glance</h2>
+  <p>Checked by running the app locally with the real models and clicking through every page of the dashboard.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Part</th><th>State</th><th>Detail</th></tr></thead>
+    <tbody>
+      <tr><td>Orchestrator</td><td><span class="pill ok">Working</span></td><td>Routing, triage, approvals, execution and summaries, all persisted in PostgreSQL.</td></tr>
+      <tr><td>Guardrail</td><td><span class="pill ok">Working</span></td><td>Risk scan, OPA policy and LLM judge. Self-approval and double votes are blocked.</td></tr>
+      <tr><td>Diagnostic / RCA</td><td><span class="pill ok">Working</span></td><td>DeepSeek-R1 found the <code>DATABASE_URL</code> cause on the sample log.</td></tr>
+      <tr><td>Code Reviewer</td><td><span class="pill ok">Working</span></td><td>Grok found 6 issues (4 high) on the leaky-PR demo and produced a lint patch.</td></tr>
+      <tr><td>Merge Assistant</td><td><span class="pill warn">Demo only</span></td><td>Works on a scratch repo it creates. Not connected to real GitHub branches.</td></tr>
+      <tr><td>Dependency Resolver</td><td><span class="pill warn">Degraded</span></td><td>OpenTofu is not installed, so it parses the <code>.tf</code> files itself.</td></tr>
+      <tr><td>Drift Detection</td><td><span class="pill bad">Not running</span></td><td>Its <code>data</code> package was never committed to the repo.</td></tr>
+      <tr><td>GitHub watching</td><td><span class="pill warn">Untested</span></td><td>Built and unit-tested, never run against a real GitHub account.</td></tr>
+      <tr><td>Writing back to GitHub</td><td><span class="pill bad">Not built</span></td><td>Approved patches are dry runs. Nothing is pushed or commented.</td></tr>
+      <tr><td>User accounts</td><td><span class="pill bad">Not built</span></td><td>"Acting as" is a dropdown. No login.</td></tr>
+      <tr><td>Dashboard</td><td><span class="pill ok">Working</span></td><td>All 14 pages load with no console errors, in dark and light, down to phone width.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="broken">
+  <h2><small>02</small>What is not working</h2>
+  <p>Ordered by what would hurt a live demo first.</p>
+
+  <p class="group-label">Blocks the demo</p>
+  <ul class="issues">
+    <li class="issue s-bad">
+      <h4>GitHub is not connected <span class="pill bad">blocker</span></h4>
+      <p>The watcher, alerts and automatic investigations exist, but no account has been connected, so none of it has run against the real GitHub API. Real data can differ from what the tests assume, for example log download permissions on Actions runs.</p>
+      <p class="fix"><b>Fix:</b> create a GitHub OAuth App with Device Flow enabled and paste its Client ID in Settings, or paste a personal access token. Follow <code>hendch/DSProject5DS1</code>, push a commit that breaks a test, and check that the red alert and an RCA run appear within a minute.</p>
+    </li>
+    <li class="issue s-bad">
+      <h4>Drift Detection cannot start <span class="pill bad">blocker</span></h4>
+      <p>Omar's repository ignored every folder called <code>data/</code>, which also hid the agent's own source package <code>agents/drift_detection/data</code>. Without it, the agent cannot load, and 18 of its tests are skipped.</p>
+      <p class="fix"><b>Fix:</b> Omar commits that package (and narrows the ignore rule), then runs <code>drift-agent init</code> once to train the first model.</p>
+    </li>
+    <li class="issue s-warn">
+      <h4>Dependency Resolver runs on its fallback <span class="pill warn">degraded</span></h4>
+      <p>It wants the OpenTofu CLI to build the real dependency graph. Without it, it reads the <code>.tf</code> files with a static parser. The Guardrail treats fallback output as less reliable and raises its risk one level. It also only runs when a trigger includes a folder of <code>.tf</code> files, which today means the demo scenario only.</p>
+      <p class="fix"><b>Fix:</b> install OpenTofu and put <code>tofu</code> on the PATH.</p>
+    </li>
+  </ul>
+
+  <p class="group-label">A buyer would notice</p>
+  <ul class="issues">
+    <li class="issue s-bad">
+      <h4>No real user accounts</h4>
+      <p>Who you are is picked from the "Acting as" menu. The rules "you cannot approve what you triggered" and "two different people for high-risk production changes" work on names, not on verified identities. Anyone who can open the dashboard can approve as anyone. The API also accepts requests from any origin.</p>
+      <p class="fix"><b>Fix:</b> tie each person to their GitHub sign-in and restrict the API to the dashboard's origin.</p>
+    </li>
+    <li class="issue s-warn">
+      <h4>Nothing is written back to GitHub</h4>
+      <p>An approved Code Reviewer patch is recorded as "Dry run: would push bot/minimal-fix and open a draft pull request". Setting <code>ORCHESTRATOR_GITHUB_PUBLISH=true</code> does not help yet: it reports failure because publishing was never implemented. Review findings are not posted as PR comments either.</p>
+      <p class="fix"><b>Fix:</b> push the patch branch and open the draft PR through the GitHub API with the signed-in token, and post findings as a PR review.</p>
+    </li>
+    <li class="issue s-warn">
+      <h4>Watching is by polling, and partial</h4>
+      <p>GitHub cannot reach <code>localhost</code>, so the app asks GitHub every 60 seconds instead of receiving webhooks. It sees the 25 latest commits on the default branch, other branches only through their CI runs, and the 20 most recently updated PRs. A push with no CI and no PR is listed but not analysed.</p>
+    </li>
+    <li class="issue s-warn">
+      <h4>Merge and drift are not triggered by GitHub</h4>
+      <p>Only failed CI and pull requests start runs automatically. The Merge Assistant runs on a demo repo unless the API is given a local repository path.</p>
+    </li>
+    <li class="issue s-neutral">
+      <h4>Local only</h4>
+      <p>The app runs on one machine with an embedded PostgreSQL. It is not deployed. The free Hugging Face tier has rate limits; when a model fails, agents fall back to rules and the run is marked "degraded".</p>
+    </li>
+  </ul>
+
+  <p class="group-label">Small things</p>
+  <ul class="issues">
+    <li class="issue s-neutral"><h4>Agent registry shows the wrong model for Drift</h4><p>It shows the shared Llama profile. The drift agent actually reads <code>XAI_MODEL</code> and uses Grok.</p></li>
+    <li class="issue s-neutral"><h4>Settings and Agent registry load slowly</h4><p>They show loading placeholders for a few seconds on first open.</p></li>
+    <li class="issue s-neutral"><h4>Desktop notifications not tested</h4><p>The in-app preview browser blocks them. The in-page toasts work.</p></li>
+    <li class="issue s-neutral"><h4>Work is not pushed</h4><p>The <code>orchestrator</code> branch exists only on Rayen's machine. An older commit on <code>guardrail-agent</code> (2455c70) still carries an AI co-author line, which needs a force push to remove.</p></li>
+  </ul>
+</section>
+
+<section id="overview">
+  <h2><small>03</small>How it fits together</h2>
+  <p>Agents never call each other. The orchestrator calls each one through a small adapter, passes what earlier steps found to later steps, and publishes every proposal as an event. The Guardrail decides on every proposal before anything is executed, and every decision lands in a tamper-evident audit log.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  GH["GitHub<br/>commits · CI runs · PRs"] -->|"poll every 60 s"| W["GitHub watcher"]
+  UI["Dashboard and API"] -->|"start a run"| O["Orchestrator"]
+  W -->|"CI failed · PR opened"| O
+  O --> RCA["Diagnostic / RCA"]
+  O --> DEP["Dependency Resolver"]
+  O --> MRG["Merge Assistant"]
+  O --> REV["Code Reviewer"]
+  O --> DR["Drift Detection"]
+  RCA & DEP & MRG & REV & DR -->|"proposals"| BUS[("Event bus<br/>PostgreSQL")]
+  BUS --> G["Guardrail"]
+  G -->|"approve · hold · reject"| AP[("Approvals")]
+  UI -->|"people vote"| AP
+  AP --> O
+  O -->|"run executors"| X["Executors"]
+  G --> AUD[("Audit log<br/>hash-chained")]
+  O --> AUD
+  W --> AL["Alerts"]
+  </pre></div>
+  <div class="note"><b>Why this shape.</b> Each teammate's agent stays a separate module with its own fallback. The orchestrator is plain code, not an LLM, so a run always takes the same path for the same input and can be replayed from the database. LLMs are used where judgement helps: diagnosing, reviewing, explaining, and a second opinion in the Guardrail.</div>
+</section>
+
+<section id="run">
+  <h2><small>04</small>Life of a run</h2>
+  <p>A run is one trigger and everything that follows from it. Its state lives in <code>orchestrator.runs</code>, so a restart picks up where it stopped.</p>
+  <div class="diagram"><pre class="mermaid">
+stateDiagram-v2
+  [*] --> received
+  received --> running: route chosen
+  received --> needs_triage: no confident route
+  needs_triage --> running: a person picks the route
+  running --> waiting_approval: proposals published
+  running --> executing: nothing to approve
+  waiting_approval --> executing: every proposal decided
+  executing --> completed
+  running --> failed: unexpected error
+  completed --> [*]
+  </pre></div>
+
+  <h3>Example: the failed IAM deploy</h3>
+  <ol class="steps">
+    <li>Sami starts the "Failed deploy: IAM cycle" scenario. The trigger is a deploy failure, so the rules pick the route <code>deploy_failed</code>: Dependency Resolver, then Diagnostic / RCA.</li>
+    <li>The Dependency Resolver finds a cycle between <code>aws_iam_role</code>, <code>aws_eks_cluster</code> and <code>aws_iam_role_policy</code> and proposes a fix. Like every agent, it labels its own risk "low".</li>
+    <li>The Guardrail does not trust that label. It sees <code>iam</code> in the payload, a permissions change, and raises the risk to high. The policy rule <code>high_always_human</code> holds it for one approval.</li>
+    <li>The RCA agent ranks the causes of the log. That is advice only, so the Guardrail approves it automatically.</li>
+    <li>Sami tries to approve the fix and gets refused: you cannot approve what you triggered. Ines approves it.</li>
+    <li>The executor records "skipped": the fix is an explanation that the owner applies by hand. The run completes, the orchestrator's model writes a short summary, and each step is in the audit log.</li>
+  </ol>
+</section>
+
+<section id="routing">
+  <h2><small>05</small>Routing</h2>
+  <p>Choosing which agents handle a trigger goes down a ladder, and stops at the first step that is sure enough.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Step</th><th>How it decides</th><th>When it is used</th></tr></thead>
+    <tbody>
+      <tr><td>1. Rules</td><td>The trigger type (failed CI, pull request, scenario), or keywords in the text such as "terraform", "merge", "drift".</td><td>Almost always. Every GitHub trigger is routed here.</td></tr>
+      <tr><td>2. LLM triage</td><td>The orchestrator's model reads free text and returns a route and a confidence.</td><td>Free-text requests with no matching keyword. Accepted at confidence 0.7 or above.</td></tr>
+      <tr><td>3. Human triage</td><td>The run waits on the Triage page until a person picks the route.</td><td>When the model is unsure or unavailable.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Routes</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Route</th><th>Steps, in order</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">build_failed</td><td>Diagnostic / RCA</td></tr>
+      <tr><td class="mono">deploy_failed</td><td>Dependency Resolver → Diagnostic / RCA</td></tr>
+      <tr><td class="mono">merge_requested</td><td>Merge Assistant</td></tr>
+      <tr><td class="mono">pull_request</td><td>Diagnostic / RCA <em>only if the PR's tests failed</em> → Code Reviewer</td></tr>
+      <tr><td class="mono">drift_check</td><td>Drift Detection → Diagnostic / RCA <em>only if drift looks like a pipeline bug</em></td></tr>
+    </tbody>
+  </table></div>
+  <p>Conditional steps read the facts earlier steps left behind. For a failing PR, for example, the RCA diagnosis is passed to the Code Reviewer so its review can mention why the tests broke.</p>
+</section>
+
+<section id="agents">
+  <h2><small>06</small>The agents</h2>
+  <p>Each agent can propose only the action types listed for it. The Guardrail rejects anything else.</p>
+  <div class="agents">
+
+    <article class="agent">
+      <div class="agent-head"><h3>Diagnostic / RCA</h3><span class="owner">zrharounesprit</span><span class="pill ok">Working</span></div>
+      <dl>
+        <dt>Job</dt><dd>Explains why a build failed.</dd>
+        <dt>Input</dt><dd>A failed CI log, with secrets removed and cut to the end.</dd>
+        <dt>How</dt><dd>Strips colours and timestamps and keeps error lines with a little context (up to 3,000 characters). Searches the knowledge base once per distinct error line, keeping documents within cosine distance 0.3. Asks the model, with worked examples, for up to three causes, each with a confidence and the document it relies on. Citations the model invents are removed, causes below 0.2 confidence are dropped, and the request is retried if the model copies an example answer.</dd>
+        <dt>Proposes</dt><dd><code>rank_causes</code>, advice only</dd>
+        <dt>Model</dt><dd>DeepSeek-R1-Distill-Qwen-7B, a reasoning model</dd>
+        <dt>Fallback</dt><dd>Ranks the error lines by severity and matches each to the closest document.</dd>
+      </dl>
+    </article>
+
+    <article class="agent">
+      <div class="agent-head"><h3>Dependency Resolver</h3><span class="owner">Lyna</span><span class="pill warn">Degraded</span></div>
+      <dl>
+        <dt>Job</dt><dd>Finds circular dependencies in OpenTofu / Terraform code and explains how to break them.</dd>
+        <dt>Input</dt><dd>A folder of <code>.tf</code> files.</dd>
+        <dt>How</dt><dd>Builds the resource graph with <code>tofu graph</code>, finds the cycles, classifies each one and has the model explain the fix.</dd>
+        <dt>Proposes</dt><dd><code>propose_fix</code></dd>
+        <dt>Model</dt><dd>Llama 3.1 8B Instruct</dd>
+        <dt>Fallback</dt><dd>A static parser instead of OpenTofu and a keyword classifier instead of the model. The run is marked degraded.</dd>
+      </dl>
+    </article>
+
+    <article class="agent">
+      <div class="agent-head"><h3>Merge Assistant</h3><span class="owner">Muaad</span><span class="pill warn">Demo only</span></div>
+      <dl>
+        <dt>Job</dt><dd>Checks whether two branches merge cleanly and proposes how to resolve conflicts.</dd>
+        <dt>How</dt><dd>Tries the merge in a scratch copy, never in the real repo, then describes each conflict and a resolution. It never merges.</dd>
+        <dt>Proposes</dt><dd><code>flag_conflict</code></dd>
+        <dt>Model</dt><dd>Llama 3.1 8B Instruct</dd>
+        <dt>Fallback</dt><dd>A rule-based description of the conflicting lines.</dd>
+      </dl>
+    </article>
+
+    <article class="agent">
+      <div class="agent-head"><h3>Code Reviewer</h3><span class="owner">hendch</span><span class="pill ok">Working</span></div>
+      <dl>
+        <dt>Job</dt><dd>Reviews pull requests for ML and MLOps mistakes such as data leakage, and proposes safe lint fixes.</dd>
+        <dt>How</dt><dd>Clones the PR read-only, using the token for that one command only. Runs <code>ruff</code>, then runs the reviewer in its own process. The model uses tools to read the code, and returns findings by severity plus a minimal patch.</dd>
+        <dt>Proposes</dt><dd><code>review_code</code> (advice only) and <code>propose_patch</code> (a draft PR, currently a dry run)</dd>
+        <dt>Model</dt><dd>Grok 4.20, non-reasoning, through xAI</dd>
+        <dt>Fallback</dt><dd>A scripted review based on the lint results.</dd>
+      </dl>
+    </article>
+
+    <article class="agent">
+      <div class="agent-head"><h3>Drift Detection</h3><span class="owner">omar</span><span class="pill bad">Not running</span></div>
+      <dl>
+        <dt>Job</dt><dd>Watches a deployed model for data and concept drift.</dd>
+        <dt>How</dt><dd>Scores each new batch of production data and sets a severity. When drift is found, the model investigates and recommends retraining, promoting or rolling back a model version. Its data lives in the <code>drift</code> schema of the shared database.</dd>
+        <dt>Proposes</dt><dd><code>drift_report</code> (advice only), and <code>promote_model</code> and <code>rollback_model</code> (production, high risk, so two approvals)</dd>
+        <dt>Model</dt><dd>Grok 4.20, reasoning, through xAI</dd>
+        <dt>Blocked by</dt><dd>The missing <code>data</code> package (see section 02).</dd>
+      </dl>
+    </article>
+
+    <article class="agent">
+      <div class="agent-head"><h3>Orchestrator</h3><span class="owner">shared</span><span class="pill ok">Working</span></div>
+      <dl>
+        <dt>Job</dt><dd>Turns triggers into runs, calls agents in order, collects decisions, runs executors and writes the summary.</dd>
+        <dt>How</dt><dd>A state machine stored in PostgreSQL. A background sweep advances runs that are waiting, and on startup any interrupted run is recovered.</dd>
+        <dt>Model</dt><dd>Llama 3.1 8B Instruct, used only for triage of free text and the run summary.</dd>
+        <dt>Fallback</dt><dd>Human triage, and a plain template summary.</dd>
+      </dl>
+    </article>
+  </div>
+</section>
+
+<section id="guardrail">
+  <h2><small>07</small>The Guardrail</h2>
+  <p>Every proposal is checked in three layers. The rule that holds them together: each layer can make a decision stricter, and none can make it looser.</p>
+
+  <h3>Layer 1: risk from evidence</h3>
+  <p>The proposal starts at the risk the agent declared. The Guardrail then scans what the action actually touches and raises the level when it finds:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Signal in the payload</th><th>Raises to</th></tr></thead>
+    <tbody>
+      <tr><td><code>prod</code>, <code>production</code></td><td><span class="pill bad">high</span></td></tr>
+      <tr><td>Destructive words: destroy, delete, drop table, truncate, <code>rm -rf</code>, terminate</td><td><span class="pill bad">high</span></td></tr>
+      <tr><td>Permissions and security: IAM, KMS, secrets, security groups, firewalls, roles</td><td><span class="pill bad">high</span></td></tr>
+      <tr><td>Billable infrastructure: GPUs, instances, RDS, clusters, NAT gateways, autoscaling</td><td><span class="pill warn">medium</span></td></tr>
+      <tr><td>Infrastructure state: backend, tfstate, state lock</td><td><span class="pill warn">medium</span></td></tr>
+      <tr><td>The agent fell back to rules or static analysis</td><td>one level up</td></tr>
+    </tbody>
+  </table></div>
+  <p>Advice-only actions skip this scan, because approving them changes nothing.</p>
+
+  <h3>Layer 2: the policy</h3>
+  <p>Written in Rego and evaluated by Open Policy Agent. Rules are tried from top to bottom and the first match wins.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Rule</th><th>When</th><th>Decision</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">agent_not_allowed_action</td><td>The agent proposed an action it is not allowed to</td><td><span class="pill bad">reject</span></td></tr>
+      <tr><td class="mono">prod_high_two_person</td><td>High risk in production</td><td><span class="pill warn">hold · 2 people</span></td></tr>
+      <tr><td class="mono">high_always_human</td><td>High risk anywhere else</td><td><span class="pill warn">hold · 1 person</span></td></tr>
+      <tr><td class="mono">advisory_only</td><td>Advice: rank_causes, review_code, drift_report</td><td><span class="pill ok">auto-approve</span></td></tr>
+      <tr><td class="mono">prod_requires_human</td><td>Any other change in production</td><td><span class="pill warn">hold · 1 person</span></td></tr>
+      <tr><td class="mono">staging_medium_human</td><td>Medium risk in staging</td><td><span class="pill warn">hold · 1 person</span></td></tr>
+      <tr><td class="mono">low_risk_auto</td><td>Low risk in dev or staging</td><td><span class="pill ok">auto-approve</span></td></tr>
+      <tr><td class="mono">dev_medium_auto</td><td>Medium risk in dev</td><td><span class="pill ok">auto-approve</span></td></tr>
+      <tr><td class="mono">default_hold</td><td>Nothing matched</td><td><span class="pill warn">hold · 1 person</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Layer 3: the LLM judge</h3>
+  <p>For changes the policy did not reject, a separate model reads the proposal and the evidence and says whether it looks risky. It can turn an automatic approval into a hold (rule <code>llm_escalation</code>), never the reverse. If the model is unreachable, the policy decision stands. The judge is Qwen 2.5 7B, a different model family from the agents it checks.</p>
+
+  <h3>Approvals</h3>
+  <ul class="plain">
+    <li>The person who triggered a run cannot approve its proposals (the API answers 403).</li>
+    <li>A person cannot vote twice on the same proposal (409).</li>
+    <li>Pending approvals expire after 4 hours and count as rejected.</li>
+    <li>Every decision is written to <code>reasoning_logs</code>. Each row includes the hash of the row before it, so changing or deleting a row breaks the chain. The Audit page checks the chain and shows whether it is intact.</li>
+  </ul>
+</section>
+
+<section id="execution">
+  <h2><small>08</small>After approval</h2>
+  <p>Each decided proposal goes to an executor once. The result is stored, so running the executors again never repeats an action.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Action</th><th>What happens when approved</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">rank_causes, review_code, drift_report</td><td><span class="pill neutral">not needed</span> Advice only.</td></tr>
+      <tr><td class="mono">propose_fix</td><td><span class="pill neutral">skipped</span> The fix is an explanation. The owner applies it by hand.</td></tr>
+      <tr><td class="mono">flag_conflict</td><td><span class="pill neutral">skipped</span> A person merges. The assistant never does.</td></tr>
+      <tr><td class="mono">propose_patch</td><td><span class="pill warn">dry run</span> Records the branch and draft PR it would open. Real publishing is not built.</td></tr>
+      <tr><td class="mono">promote_model, rollback_model</td><td><span class="pill ok">done</span> The drift agent applies it (once the agent can run).</td></tr>
+      <tr><td>Anything rejected or expired</td><td><span class="pill neutral">skipped</span> Nothing is executed. The drift agent is told about rejections.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="github">
+  <h2><small>09</small>GitHub</h2>
+  <h3>Connecting</h3>
+  <p>In Settings, "Sign in with GitHub" uses GitHub's device flow: the app shows a short code, you approve it on github.com, and the app receives a token. This needs a GitHub OAuth App, created once, with Device Flow enabled. The other way is to paste a personal access token. Then you choose which repositories to follow on the Repositories page.</p>
+  <h3>What it reacts to</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>On GitHub</th><th>In OpsAgents</th></tr></thead>
+    <tbody>
+      <tr><td>A commit's CI passes</td><td>Green status on the commit in Activity</td></tr>
+      <tr><td>A commit's CI fails</td><td>Critical alert. The failing job's log goes to the RCA agent automatically.</td></tr>
+      <tr><td>CI passes again after a failure</td><td>"CI is green again" alert</td></tr>
+      <tr><td>A PR is opened or gets new commits</td><td>Info alert. The Code Reviewer reviews it automatically, with RCA first if its tests failed.</td></tr>
+      <tr><td>Token rejected, rate limit hit, repo unreadable</td><td>Alert that points to Settings or Repositories</td></tr>
+    </tbody>
+  </table></div>
+  <p>The first sync of a repository only records its history, so old failures do not raise alerts. Alerts are de-duplicated, so a failure is reported once. Automatic investigation can be turned off in Settings. Logs have secrets removed before they are stored or sent to a model.</p>
+</section>
+
+<section id="models">
+  <h2><small>10</small>Models</h2>
+  <p>Every agent has its own model profile in <code>.env</code> (<code>&lt;AGENT&gt;_LLM_MODEL</code> and related settings) and falls back to the shared default. All models are called through one OpenAI-compatible client.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Used by</th><th>Model</th><th>Provider</th><th>Why this one</th></tr></thead>
+    <tbody>
+      <tr><td>Orchestrator, Dependency Resolver, Merge Assistant</td><td class="mono">Llama-3.1-8B-Instruct</td><td>Hugging Face</td><td>Fast and cheap. Their tasks are short: classify, explain, summarise.</td></tr>
+      <tr><td>Diagnostic / RCA</td><td class="mono">DeepSeek-R1-Distill-Qwen-7B</td><td>Hugging Face</td><td>A reasoning model. Finding a root cause means weighing log lines against documents step by step.</td></tr>
+      <tr><td>Guardrail judge</td><td class="mono">Qwen2.5-7B-Instruct</td><td>Hugging Face (Featherless)</td><td>A different family from the agents it checks, so it is less likely to share their blind spots. Reliable at structured JSON.</td></tr>
+      <tr><td>Code Reviewer</td><td class="mono">grok-4.20-0309-non-reasoning</td><td>xAI</td><td>The reviewer needs tool calls. The Hugging Face coder models tried did not support them.</td></tr>
+      <tr><td>Drift Detection</td><td class="mono">grok-4.20-0309-reasoning</td><td>xAI</td><td>Omar's original setup.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>When a model fails</h3>
+  <ul class="plain">
+    <li>Each call is retried twice. After a failure, that model is skipped for 30 seconds so a dead provider does not slow every run.</li>
+    <li>When a model is unavailable, the agent switches to its rule-based fallback, and the step is marked "degraded" on the run page.</li>
+    <li>Reasoning output (<code>&lt;think&gt;</code> blocks) is stripped, and JSON is extracted even when a model wraps it in prose. RCA turns JSON mode off, because DeepSeek-R1 answered with nothing in JSON mode.</li>
+  </ul>
+</section>
+
+<section id="data">
+  <h2><small>11</small>Data and plumbing</h2>
+  <p>Everything lives in one PostgreSQL database, set up by numbered migrations <code>001</code> to <code>006</code> (<code>python -m shared.migrate</code>).</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Where</th><th>What</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">events, event_receipts</td><td>The event bus. Publishing and logging happen in one transaction. Consumers are woken by LISTEN/NOTIFY and keep one receipt per event. A failed event is retried 30 seconds later, with growing delays, and marked dead after 5 attempts.</td></tr>
+      <tr><td class="mono">approvals</td><td>Guardrail decisions and votes</td></tr>
+      <tr><td class="mono">reasoning_logs</td><td>The hash-chained audit log, append-only</td></tr>
+      <tr><td class="mono">orchestrator.*</td><td>Runs, their steps and their actions</td></tr>
+      <tr><td class="mono">knowledge.documents</td><td>The RCA knowledge base, as pgvector embeddings (BAAI bge-small-en-v1.5, 384 dimensions)</td></tr>
+      <tr><td class="mono">github.*</td><td>Followed repos' commits and PRs, plus what has already been alerted on</td></tr>
+      <tr><td class="mono">alerts, app_settings</td><td>Notifications and settings such as the OAuth Client ID</td></tr>
+      <tr><td class="mono">drift</td><td>The drift agent's batches, runs and model versions</td></tr>
+    </tbody>
+  </table></div>
+  <p>For development and tests, <code>pgserver</code> starts an embedded PostgreSQL 16 with pgvector, so no installation is needed. The policy runs on a local OPA binary in <code>.tools/</code>.</p>
+</section>
+
+<section id="run-it">
+  <h2><small>12</small>Running it</h2>
+  <p>Once, in the project folder:</p>
+  <pre class="cmd">pip install -e ".[dev]"</pre>
+  <p>Start everything (database, policy engine, agents, GitHub watcher, dashboard) and open <a href="http://localhost:8080">localhost:8080</a>:</p>
+  <pre class="cmd">python -m app</pre>
+  <p>Tests:</p>
+  <pre class="cmd">pytest -q</pre>
+  <p>Add <code>?mock=1</code> to the dashboard URL to try the interface with sample data and no backend.</p>
+</section>
+
+<footer>Written from the code on branch <code>orchestrator</code> (commit 8feec36) and a local run on 20 October 2026.</footer>
+</main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>
+  var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  mermaid.initialize({ startOnLoad: true, theme: dark ? "dark" : "neutral", securityLevel: "strict" });
+</script>
+<style>@media print { nav.toc { display: none !important; } .wrap { display: block; } section { break-inside: auto; } .agent, .issue, .diagram { break-inside: avoid; } }</style>
+</body>
+</html>

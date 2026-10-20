@@ -1,0 +1,51 @@
+OPSAGENTS - TEST SUMMARY
+Advanced Data Science project, 20 October 2026 (branch orchestrator)
+
+HOW WE TEST
+1. Automated tests (pytest): 170 tests. They run on a real PostgreSQL database and the
+   real policy engine (OPA). AI models are replaced by test doubles, so the tests are fast
+   and repeatable.
+2. Policy tests (opa test): 20 tests of the Guardrail's approval rules.
+3. Benchmark (opsagents-bench): 64 realistic cases with known right answers, run against
+   the real agents and real AI models.
+
+RESULTS
+  Guardrail ............................ 48/48 passed
+  Code Reviewer ........................ 27/27 passed
+  Drift Detection ...................... 18 passed, 12 skipped (data package missing)
+  Dependency Resolver .................. 12/12 passed
+  Orchestrator, GitHub, API, platform .. 53/53 passed
+  TOTAL (pytest) ....................... 158 passed, 12 skipped, 0 failed
+  Guardrail policy (OPA) ............... 20/20 passed
+
+WHAT THE TESTS PROVE
+- Guardrail: risk is scored from evidence and can only go up; it fails safe when the
+  policy engine or the AI judge is down; nobody can approve their own change; high-risk
+  production changes need two people; the audit log cannot be edited without detection.
+- Code Reviewer: it finds ML mistakes, only applies safe fixes, never merges, never reads
+  outside the repository, and ignores instructions hidden in the code it reviews.
+- Drift Detection: the statistics (PSI, KS, chi-square, Jensen-Shannon) are correct and
+  data is stored safely in PostgreSQL.
+- Dependency Resolver: cycles are found without false alarms, even with OpenTofu, the AI
+  model and the database all unavailable.
+- Platform: runs complete or wait for approval correctly, GitHub failures raise one alert
+  and one investigation, secrets are removed from logs.
+
+BENCHMARK (64 cases, real models vs. rules only)
+  Agent                 With AI models               Rules only
+  Routing               13/15                        8/15
+  Guardrail             20/22 (1 unsafe approval)    17/22 (4 unsafe)
+  Diagnostic / RCA      6/8 correct top cause        4/8
+  Code Reviewer         6/6 found, 0 false alarms    0/6
+  Dependency Resolver   6/6                          6/6
+  Merge Assistant       5/5                          5/5
+
+WHAT THE BENCHMARK FOUND (to fix next)
+- A prompt injection in an incident report steered the router.
+- A patch that disables the authentication check was approved automatically.
+- A production model rollback labelled "low" needed 1 approver instead of 2.
+- The RCA agent once copied an unrelated document instead of reading the log.
+
+CONCLUSION
+All tests that can run pass. The AI models add the most to routing, risk judgement and
+code review. The benchmark found four concrete weaknesses, all fixable.

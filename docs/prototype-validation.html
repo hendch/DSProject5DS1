@@ -1,0 +1,562 @@
+<title>OpsAgents Prototype Validation</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Public+Sans:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a validation dossier. Sticky contents rail on wide screens, one reading column, the brief's six sections in order, tables wherever a row holds several facts. */
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --ink: #15181d;
+  --muted: #5a6371;
+  --line: #dde1e7;
+  --accent: #d9530b;
+  --accent-soft: #fdeee4;
+  --ok: #1d7a46; --ok-bg: #e3f4ea;
+  --warn: #9a6200; --warn-bg: #fbf0d9;
+  --bad: #b42318; --bad-bg: #fde8e6;
+  --code-bg: #eef0f3;
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Public Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115; --surface: #171a20; --ink: #e7e9ed; --muted: #9aa3b0; --line: #2a2f38;
+    --accent: #ff7a2e; --accent-soft: #2b1a10;
+    --ok: #4cc98a; --ok-bg: #12291d; --warn: #f0b544; --warn-bg: #2d2410; --bad: #ff7b6e; --bad-bg: #321613;
+    --code-bg: #1e222a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1115; --surface: #171a20; --ink: #e7e9ed; --muted: #9aa3b0; --line: #2a2f38;
+  --accent: #ff7a2e; --accent-soft: #2b1a10;
+  --ok: #4cc98a; --ok-bg: #12291d; --warn: #f0b544; --warn-bg: #2d2410; --bad: #ff7b6e; --bad-bg: #321613;
+  --code-bg: #1e222a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 16px; line-height: 1.6; }
+.wrap {
+  max-width: 1160px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 80px;
+  display: grid; grid-template-columns: 1fr; gap: 40px;
+}
+@media (min-width: 1000px) { .wrap { grid-template-columns: 220px minmax(0, 1fr); gap: 56px; } }
+nav.toc { display: none; }
+@media (min-width: 1000px) {
+  nav.toc { display: block; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 24px); align-self: start; font-size: 14px; }
+}
+nav.toc p { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; border-left: 1px solid var(--line); }
+nav.toc a { display: block; padding: 4px 0 4px 14px; color: var(--muted); text-decoration: none; margin-left: -1px; border-left: 2px solid transparent; }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--ink); border-left-color: var(--accent); outline: none; }
+main { min-width: 0; max-width: 820px; }
+header.top { display: grid; gap: 14px; padding-bottom: 28px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; color: var(--accent); letter-spacing: .04em; }
+h1 { font-family: var(--font-display); font-size: clamp(32px, 5vw, 46px); line-height: 1.08; margin: 0; letter-spacing: -.015em; text-wrap: balance; }
+.lede { font-size: 18px; color: var(--muted); margin: 0; max-width: 62ch; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px; }
+.meta span { font-family: var(--font-mono); font-size: 12px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); }
+section { padding-top: 48px; scroll-margin-top: 16px; }
+h2 { font-family: var(--font-display); font-size: 28px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -.01em; text-wrap: balance; }
+h2 small { display: block; font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-weight: 400; letter-spacing: .04em; margin-bottom: 6px; }
+h3 { font-size: 18px; margin: 30px 0 6px; text-wrap: balance; }
+p { margin: 10px 0; max-width: 68ch; }
+ul.plain, ol.plain { padding-left: 20px; margin: 10px 0; } ul.plain li, ol.plain li { margin: 5px 0; max-width: 66ch; }
+code { font-family: var(--font-mono); font-size: .86em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+pre.cmd, pre.tree { font-family: var(--font-mono); font-size: 13px; background: var(--code-bg); border: 1px solid var(--line); padding: 12px 14px; border-radius: 6px; overflow-x: auto; margin: 10px 0; line-height: 1.55; }
+.table-wrap { overflow-x: auto; margin: 14px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+td.mono, .mono { font-family: var(--font-mono); font-size: 13px; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.ok { color: var(--ok); background: var(--ok-bg); }
+.warn { color: var(--warn); background: var(--warn-bg); }
+.bad { color: var(--bad); background: var(--bad-bg); }
+.neutral { color: var(--muted); background: var(--code-bg); }
+.objectives { counter-reset: obj; list-style: none; padding: 0; margin: 14px 0; display: grid; gap: 10px; }
+.objectives li { counter-increment: obj; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px 12px 50px; position: relative; }
+.objectives li::before { content: "O" counter(obj); position: absolute; left: 14px; top: 12px; font-family: var(--font-mono); font-size: 13px; font-weight: 500; color: var(--accent); }
+.objectives b { display: block; }
+.objectives span { color: var(--muted); font-size: 15px; }
+.agents { display: grid; gap: 14px; margin-top: 16px; }
+.agent { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; min-width: 0; }
+.agent-head { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; justify-content: space-between; }
+.agent-head h3 { margin: 0; font-size: 19px; font-family: var(--font-display); }
+.agent-head .owner { font-size: 13px; color: var(--muted); }
+.agent dl { display: grid; grid-template-columns: 1fr; gap: 2px 18px; margin: 12px 0 0; font-size: 14.5px; }
+@media (min-width: 620px) { .agent dl { grid-template-columns: 120px minmax(0, 1fr); } }
+.agent dt { color: var(--muted); font-weight: 600; font-size: 13px; padding-top: 6px; }
+.agent dd { margin: 0; padding-top: 4px; min-width: 0; }
+@media (min-width: 620px) { .agent dt, .agent dd { padding-top: 6px; border-top: 1px dashed var(--line); } .agent dt:first-of-type, .agent dd:first-of-type { border-top: 0; } }
+.tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.tools code { background: var(--bg); border: 1px solid var(--line); }
+.diagram { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; overflow-x: auto; margin: 16px 0; }
+.diagram pre.mermaid { margin: 0; background: none; text-align: center; }
+.note { background: var(--accent-soft); border-radius: 8px; padding: 12px 16px; margin: 16px 0; font-size: 15px; }
+.note b { color: var(--accent); }
+ol.steps { padding-left: 22px; } ol.steps li { margin: 7px 0; max-width: 66ch; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 18px 0 6px; }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.kpi b { display: block; font-family: var(--font-display); font-size: 28px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.kpi span { font-size: 13px; color: var(--muted); }
+a { color: var(--accent); }
+footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+</style>
+
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+  <p>Contents</p>
+  <ol>
+    <li><a href="#problem">1. Problem and objectives</a></li>
+    <li><a href="#architecture">2. Multi-agent architecture</a></li>
+    <li><a href="#monitoring">2b. Monitoring with LangSmith</a></li>
+    <li><a href="#demo">3. Prototype demonstration</a></li>
+    <li><a href="#technical">4. Data science approach</a></li>
+    <li><a href="#validation">5. Validation and feedback</a></li>
+    <li><a href="#next">6. Next steps</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="top">
+  <div class="eyebrow">Advanced Data Science Project · Prototype validation · Team DSProject5DS1</div>
+  <h1>OpsAgents: a guarded multi-agent assistant for DevOps and MLOps</h1>
+  <p class="lede">Five specialist AI agents diagnose failed builds, review pull requests, untangle infrastructure, resolve merge conflicts and watch models for drift. An orchestrator coordinates them, and a guardrail makes sure no change reaches production without the right human approval.</p>
+  <div class="meta"><span>Lyna · Dependency Resolver</span><span>zrharounesprit · Diagnostic / RCA</span><span>Muaad · Merge Assistant</span><span>hendch · Code Reviewer</span><span>omar · Drift Detection</span><span>Rayen · Guardrail, orchestrator, platform</span></div>
+</header>
+
+<!-- 1 -->
+<section id="problem">
+  <h2><small>1</small>Problem and targeted objectives</h2>
+  <h3>The problem</h3>
+  <p>Teams that ship software and machine learning models lose hours to the same incidents: a CI build fails and someone has to dig through a long log; an infrastructure deploy fails on a dependency cycle; two branches conflict; a pull request quietly leaks test data into training; a model in production degrades because its input data changed. Each incident needs a specialist, and they tend to happen at the worst time.</p>
+  <p>AI agents can do much of this diagnosis. Letting them act on their own is risky, though: an agent that edits IAM permissions or rolls back a production model without oversight can cause more damage than the incident it was fixing.</p>
+
+  <h3>Target users</h3>
+  <ul class="plain">
+    <li><b>Small DevOps and platform teams</b> without round-the-clock specialists.</li>
+    <li><b>Data science teams</b> that deploy models and own their pipelines.</li>
+    <li><b>Team leads and reviewers</b> who approve changes and need to know why each one was proposed.</li>
+  </ul>
+
+  <h3>Main objective</h3>
+  <p>Cut the time from "something broke" to "we know why and have a fix", while every change that carries risk stays under human control and leaves an auditable trail.</p>
+
+  <h3>Specific objectives</h3>
+  <ol class="objectives">
+    <li><b>Diagnose failed builds automatically</b><span>A ranked list of root causes, with the evidence each one relies on, within a minute of a failed CI run.</span></li>
+    <li><b>Review every pull request for ML mistakes</b><span>Data leakage, unsafe preprocessing and lint issues, with a minimal fix proposed.</span></li>
+    <li><b>Cover the rest of the delivery chain</b><span>Infrastructure dependency cycles, merge conflicts and model drift, each handled by a dedicated agent.</span></li>
+    <li><b>Never let an agent make a risky change alone</b><span>Each proposal is risk-scored, checked against a written policy and held for one or two human approvals when needed.</span></li>
+    <li><b>Make every decision traceable</b><span>A tamper-evident audit log of decisions, plus LangSmith traces of every agent step and model call.</span></li>
+    <li><b>Keep working when an AI model fails</b><span>Every agent has a rule-based fallback, and the run is marked "degraded" rather than failing.</span></li>
+  </ol>
+
+  <h3>How the solution addresses it</h3>
+  <p>OpsAgents connects to the team's GitHub repositories. When CI fails or a pull request opens, the orchestrator sends the right specialists. Their findings arrive as <em>proposals</em>, never as direct actions. The Guardrail scores each proposal's real risk and applies the team's policy. Advice and low-risk changes go through at once. Risky changes wait in an approval queue on the dashboard, where the person who triggered the run cannot approve it themselves. Everything is recorded.</p>
+</section>
+
+<!-- 2 -->
+<section id="architecture">
+  <h2><small>2</small>Multi-agent architecture</h2>
+  <p>The system is an <b>orchestrator–worker</b> design with a separate <b>supervisor</b> (the Guardrail). Worker agents never call each other. The orchestrator calls them in order, passes what earlier agents found to later ones, and publishes each proposal as an event on a PostgreSQL event bus. The Guardrail consumes those events and decides. All components share one PostgreSQL database and one Python environment.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  GH["GitHub<br/>commits · CI runs · PRs"] -->|"poll every 60 s"| W["GitHub watcher"]
+  UI["Dashboard and API"] -->|"start a run"| O["Orchestrator"]
+  W -->|"CI failed · PR opened"| O
+  O --> RCA["Diagnostic / RCA"]
+  O --> DEP["Dependency Resolver"]
+  O --> MRG["Merge Assistant"]
+  O --> REV["Code Reviewer"]
+  O --> DR["Drift Detection"]
+  RCA & DEP & MRG & REV & DR -->|"proposals"| BUS[("Event bus<br/>PostgreSQL")]
+  BUS --> G["Guardrail"]
+  G -->|"approve · hold · reject"| AP[("Approvals")]
+  UI -->|"people vote"| AP
+  AP --> O
+  O -->|"run executors"| X["Executors"]
+  G --> AUD[("Audit log<br/>hash-chained")]
+  O --> AUD
+  O -.->|"traces"| LS["LangSmith"]
+  G -.->|"traces"| LS
+  </pre></div>
+
+  <h3>The agents</h3>
+  <p>For each agent: its objective, responsibilities, model and the reason for that model, and its tools.</p>
+  <div class="agents">
+
+    <article class="agent">
+      <div class="agent-head"><h3>Orchestrator</h3><span class="owner">Rayen</span></div>
+      <dl>
+        <dt>Objective</dt><dd>Turn each trigger into a complete, recoverable run: pick the agents, run them, collect decisions, execute and summarise.</dd>
+        <dt>Responsibilities</dt><dd>Routing (rules first, then LLM triage at confidence ≥ 0.7, then a human); calling agents in order; passing facts between them; running conditional steps; syncing Guardrail decisions; running executors once; writing the run summary; raising alerts.</dd>
+        <dt>Model</dt><dd>Llama 3.1 8B Instruct (Hugging Face). Its LLM tasks are short: classify free text into a route, and summarise a run in two sentences. A small, fast model is enough and keeps cost low. The control flow itself is deterministic code, so a run is repeatable and can resume after a restart.</dd>
+        <dt>Tools</dt><dd class="tools"><code>route catalog + keyword rules</code><code>LLM triage</code><code>agent adapters</code><code>PostgreSQL event bus</code><code>GitHub REST API (read)</code><code>executors</code><code>alerts</code></dd>
+      </dl>
+    </article>
+
+    <article class="agent">
+      <div class="agent-head"><h3>Diagnostic / RCA</h3><span class="owner">zrharounesprit</span></div>
+      <dl>
+        <dt>Objective</dt><dd>Explain why a build failed (objective O1).</dd>
+        <dt>Responsibilities</dt><dd>Clean the log, extract the error context, retrieve relevant documentation, and rank up to three root causes, each with a confidence and the source it relies on.</dd>
+        <dt>Model</dt><dd>DeepSeek-R1-Distill-Qwen-7B (Hugging Face), a reasoning model. Root-cause analysis means weighing several error lines against documents step by step, where a reasoning model is stronger than a plain instruction model of the same size. Its reasoning is stripped before parsing.</dd>
+        <dt>Tools</dt><dd class="tools"><code>log cleaner and error extractor</code><code>knowledge-base search (pgvector)</code><code>few-shot examples</code><code>citation validator</code><code>rule-based ranker (fallback)</code></dd>
+      </dl>
+    </article>
+
+    <article class="agent">
+      <div class="agent-head"><h3>Dependency Resolver</h3><span class="owner">Lyna</span></div>
+      <dl>
+        <dt>Objective</dt><dd>Unblock infrastructure deploys that fail on circular dependencies (O3).</dd>
+        <dt>Responsibilities</dt><dd>Build the resource graph of the OpenTofu/Terraform code, find the cycles, classify each one and explain how to break it.</dd>
+        <dt>Model</dt><dd>Llama 3.1 8B Instruct. The graph analysis is done by tools; the model only classifies the cycle and writes the explanation, a short and well-scoped task.</dd>
+        <dt>Tools</dt><dd class="tools"><code>tofu graph</code><code>networkx cycle detection</code><code>DOT parser (pydot)</code><code>static .tf parser (fallback)</code><code>keyword classifier (fallback)</code></dd>
+      </dl>
+    </article>
+
+    <article class="agent">
+      <div class="agent-head"><h3>Merge Assistant</h3><span class="owner">Muaad</span></div>
+      <dl>
+        <dt>Objective</dt><dd>Detect merge conflicts before a person merges, and propose a resolution (O3).</dd>
+        <dt>Responsibilities</dt><dd>Try the merge in a scratch copy, list the conflicting files and hunks, describe the conflict and propose a resolution. It never merges.</dd>
+        <dt>Model</dt><dd>Llama 3.1 8B Instruct: explaining a handful of conflicting lines does not need a larger model.</dd>
+        <dt>Tools</dt><dd class="tools"><code>GitPython</code><code>scratch clone</code><code>trial merge (--no-commit)</code><code>conflict extractor</code><code>rule-based description (fallback)</code></dd>
+      </dl>
+    </article>
+
+    <article class="agent">
+      <div class="agent-head"><h3>Code Reviewer</h3><span class="owner">hendch</span></div>
+      <dl>
+        <dt>Objective</dt><dd>Review pull requests for ML and MLOps mistakes and propose safe fixes (O2).</dd>
+        <dt>Responsibilities</dt><dd>Read the changes, lint findings and failing tests; report findings by severity; produce a minimal patch limited to safe lint fixes, proposed as a draft pull request.</dd>
+        <dt>Model</dt><dd>Grok 4.20, non-reasoning (xAI). The reviewer works by calling tools to read the code. The Hugging Face coder models we tried did not support tool calling through the router, and Grok handles it reliably.</dd>
+        <dt>Tools</dt><dd class="tools"><code>list_changed_files</code><code>get_diff</code><code>get_lint_findings</code><code>get_test_failures</code><code>get_rules</code><code>submit_review</code><code>ruff</code><code>read-only git clone</code><code>patch fixer and validator</code></dd>
+      </dl>
+    </article>
+
+    <article class="agent">
+      <div class="agent-head"><h3>Drift Detection</h3><span class="owner">omar</span></div>
+      <dl>
+        <dt>Objective</dt><dd>Notice when a production model's data or accuracy drifts, explain why, and recommend retraining, promotion or rollback (O3).</dd>
+        <dt>Responsibilities</dt><dd>Score each new production batch with statistical tests, investigate significant drift, and propose a report plus, when needed, a model change.</dd>
+        <dt>Model</dt><dd>Grok 4.20, reasoning (xAI). The investigation chains several tool calls and needs to separate data drift from concept drift and from a pipeline bug, which is multi-step reasoning. Statistics decide <em>whether</em> something drifted; the model explains <em>why</em>.</dd>
+        <dt>Tools</dt><dd class="tools"><code>get_drift_report</code><code>compare_distributions</code><code>segment_breakdown</code><code>feature_importance</code><code>drift_history</code><code>recent_pipeline_events</code><code>performance_history</code><code>model_info</code><code>model registry</code><code>rule-based investigator (fallback)</code></dd>
+      </dl>
+    </article>
+
+    <article class="agent">
+      <div class="agent-head"><h3>Guardrail</h3><span class="owner">Rayen</span></div>
+      <dl>
+        <dt>Objective</dt><dd>Make sure no agent makes a risky change on its own (O4), and record every decision (O5).</dd>
+        <dt>Responsibilities</dt><dd>Validate every proposal; compute its real risk from evidence; apply the policy; ask an LLM judge for a second opinion; open approvals and enforce who may approve; expire stale approvals; write the hash-chained audit log.</dd>
+        <dt>Model</dt><dd>Qwen 2.5 7B Instruct (Hugging Face, via Featherless). It belongs to a different model family from the agents it checks, so it is less likely to share their blind spots, and it is reliable at strict JSON. The judge can only make a decision stricter, never looser.</dd>
+        <dt>Tools</dt><dd class="tools"><code>risk scanner</code><code>Open Policy Agent (Rego)</code><code>LLM judge</code><code>approvals store</code><code>hash-chained audit log</code><code>approvals API</code></dd>
+      </dl>
+    </article>
+  </div>
+
+  <h3>How the Guardrail decides</h3>
+  <ol class="plain">
+    <li><b>Risk from evidence.</b> Every agent labels its own proposal "low". The Guardrail scans what the proposal actually touches and can only raise the risk. Production, destructive operations and IAM/secrets raise it to high; billable infrastructure and state files raise it to medium; output produced by a fallback raises it one level.</li>
+    <li><b>Policy.</b> Rego rules evaluated by OPA, first match wins. An agent proposing an action it is not allowed to is rejected. High risk in production needs two different people. Other high-risk changes need one. Advice is approved automatically. Low risk outside production is approved automatically. Anything unmatched is held (fail closed).</li>
+    <li><b>LLM judge.</b> Turns an automatic approval into a hold when it judges the change risky. If the model is unreachable, the policy decision stands.</li>
+  </ol>
+
+  <h3>How information flows</h3>
+  <ul class="plain">
+    <li><b>One id per incident.</b> Each run's id is the correlation id on every event, approval, audit row and LangSmith trace, so the whole story of an incident can be followed.</li>
+    <li><b>Facts between agents.</b> Agents leave facts for later steps. The RCA diagnosis of a failing PR is handed to the Code Reviewer, so the review can say why the tests broke. If Drift Detection classifies drift as a pipeline bug, it triggers an RCA step.</li>
+    <li><b>Proposals as events.</b> Agents never act. Their output becomes events on the bus. The Guardrail answers with approval events, and the orchestrator picks up decisions and runs the executors.</li>
+    <li><b>Reliable delivery.</b> Events are written in the same transaction as their log entry. Each consumer keeps a receipt per event. Failed events are retried with a growing delay, and marked dead after five attempts.</li>
+  </ul>
+
+  <h3>Routes: which agents handle which trigger</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Trigger</th><th>Agents, in order</th></tr></thead>
+    <tbody>
+      <tr><td>Failed CI build</td><td>Diagnostic / RCA</td></tr>
+      <tr><td>Failed deployment</td><td>Dependency Resolver → Diagnostic / RCA</td></tr>
+      <tr><td>Merge request</td><td>Merge Assistant</td></tr>
+      <tr><td>Pull request</td><td>Diagnostic / RCA <em>if its tests failed</em> → Code Reviewer</td></tr>
+      <tr><td>Drift check</td><td>Drift Detection → Diagnostic / RCA <em>if the drift is a pipeline bug</em></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- 2b -->
+<section id="monitoring">
+  <h2><small>2b</small>Monitoring the agents with LangSmith</h2>
+  <p>A multi-agent system is hard to debug from logs: when a run gives a poor answer, you need to know which agent produced it, what that agent's model was asked, what it answered and how long it took. We integrated <b>LangSmith</b>, LangChain's tracing and evaluation platform, for this. Our agents do not use LangChain; LangSmith's SDK traces any Python code.</p>
+
+  <h3>What is traced</h3>
+  <p>Each orchestrator run becomes one trace, with a span per agent step and each model call nested inside its agent:</p>
+<pre class="tree">run: Failed deploy: IAM cycle              tags: orchestrator · metadata: run_id, route
+├── Dependency Resolver                    status, summary, proposals
+│   └── llm:dependency_resolver            prompt, answer, tokens, latency
+├── Diagnostic / RCA
+│   └── llm:diagnostic_rca                 DeepSeek-R1 call
+└── (Code Reviewer, for pull requests)     runs in its own process and joins this trace
+    └── llm:code_reviewer × N              one span per tool-calling turn
+guardrail: dependency_resolver/propose_fix  risk, decision, rule, LLM verdict
+└── llm:guardrail
+execute and summarise                      executor results, LLM summary
+└── llm:orchestrator</pre>
+  <p>All traces of a run share a <code>thread_id</code> equal to the run id, so LangSmith groups the agents, the Guardrail's decisions (which happen asynchronously) and the execution after approval into a single thread.</p>
+
+  <h3>How it is built</h3>
+  <ul class="plain">
+    <li><code>shared/tracing.py</code> holds the integration. Tracing is on only when <code>LANGSMITH_TRACING=true</code> and an API key is set. Otherwise every helper does nothing, so the app runs the same without an account.</li>
+    <li>Every model call in the system goes through one client in <code>shared/llm.py</code>, which is wrapped with LangSmith's <code>wrap_openai</code>. The Code Reviewer and Drift Detection agents have their own clients, which are wrapped the same way.</li>
+    <li>The Code Reviewer runs as a separate process. The orchestrator passes it the parent trace's headers, so its spans attach to the right run.</li>
+    <li>The dashboard's Settings page shows whether tracing is on and which LangSmith project it writes to.</li>
+  </ul>
+
+  <h3>What it gives us</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Question</th><th>Where the answer comes from</th></tr></thead>
+    <tbody>
+      <tr><td>Which agent is slowest, or costs the most tokens?</td><td>Latency and token counts per span, filtered by agent tag</td></tr>
+      <tr><td>Why did a run give a wrong diagnosis?</td><td>The exact prompt, retrieved documents and answer of that model call</td></tr>
+      <tr><td>How often does each model fail and fall back to rules?</td><td>Error rate per agent tag</td></tr>
+      <tr><td>Why was this proposal held for approval?</td><td>The Guardrail span: risk, matched rule and LLM verdict</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><b>Two kinds of monitoring.</b> The hash-chained audit log answers "what was decided, by whom, and has anyone altered the record?". LangSmith answers "how did each agent and model behave?". The first is for accountability, the second for debugging and improving the agents.</div>
+  <p><b>Status:</b> integrated and covered by unit tests; tested with tracing switched on, offline. Live traces start as soon as the team's LangSmith API key is added to <code>.env</code>.</p>
+</section>
+
+<!-- 3 -->
+<section id="demo">
+  <h2><small>3</small>Prototype demonstration</h2>
+  <p>The prototype runs locally with one command (<code>python -m app</code>). That starts the database, the policy engine, the agents, the GitHub watcher and the dashboard at <code>localhost:8080</code>. The dashboard has 14 pages: Home, Activity, Runs, run detail, Approvals, Triage, Alerts, four Analytics views, Agent registry, Audit log, Repositories and Settings.</p>
+
+  <h3>Use case: a deploy fails on Friday evening</h3>
+  <p><b>User:</b> Sami, a platform engineer. <b>Input:</b> <code>tofu apply</code> fails with "Cycle: aws_iam_role.checkout, aws_eks_cluster.checkout, aws_iam_role_policy.checkout".</p>
+  <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  actor Sami
+  actor Ines
+  participant O as Orchestrator
+  participant D as Dependency Resolver
+  participant R as Diagnostic / RCA
+  participant G as Guardrail
+  Sami->>O: Start "Failed deploy" with the error log
+  O->>O: Rules pick route deploy_failed
+  O->>D: .tf folder
+  D-->>O: Cycle found, fix explained (proposal, declared low)
+  O->>G: propose_fix event
+  G->>G: "iam" in payload, risk raised to high
+  G-->>O: Hold, 1 approval (rule high_always_human)
+  O->>R: Deploy log
+  R-->>O: Ranked causes (advice)
+  O->>G: rank_causes event
+  G-->>O: Auto-approved (advisory_only)
+  Sami->>G: Approve the fix
+  G-->>Sami: Refused, you triggered this run (403)
+  Ines->>G: Approve the fix
+  G-->>O: Approved (1/1)
+  O->>O: Execute, write summary, alert "Run finished"
+  </pre></div>
+  <ol class="steps">
+    <li><b>Input.</b> Sami starts the scenario from the dashboard with the error log. Failed CI runs on a connected repository start runs the same way, automatically.</li>
+    <li><b>Orchestrator.</b> Rules recognise a deployment failure and choose the Dependency Resolver, then the RCA agent.</li>
+    <li><b>Dependency Resolver.</b> Finds the three-resource cycle and explains how to break it.</li>
+    <li><b>Guardrail.</b> The fix touches IAM, a permissions change, so the risk goes from low to high and the fix is held for a human. The RCA ranking is advice, so it is approved at once.</li>
+    <li><b>Approval.</b> Sami's own approval is refused. Ines approves from the Approvals page.</li>
+    <li><b>Output.</b> The run completes with a summary written by the orchestrator's model. The run page shows the steps, the proposals with their risk and decision, and a timeline. The Audit page shows every decision, with the hash chain intact.</li>
+  </ol>
+
+  <h3>Other scenarios in the demo</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Scenario</th><th>What the agents produced, with the real models</th></tr></thead>
+    <tbody>
+      <tr><td>Review a pull request (scaler fitted before the train/test split)</td><td>Code Reviewer: 6 findings, 4 of them high severity, including the data leakage, plus a safe lint patch proposed as a draft PR (dry run)</td></tr>
+      <tr><td>Failed CI build (pytest cannot reach the database)</td><td>RCA: top cause is the missing <code>DATABASE_URL</code> in CI, citing the matching knowledge-base document</td></tr>
+      <tr><td>Merge two branches (both change <code>TIMEOUT</code>)</td><td>Merge Assistant: conflict in <code>config.py</code> detected and a resolution proposed</td></tr>
+      <tr><td>Free-text request the model is unsure about</td><td>LLM triage confidence below 0.7, so the run waited on the Triage page for a person to pick the route</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- 4 -->
+<section id="technical">
+  <h2><small>4</small>Data science and technical approach</h2>
+  <h3>Data</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Data</th><th>Used by</th><th>Details</th></tr></thead>
+    <tbody>
+      <tr><td>Knowledge base of CI/CD failure documentation</td><td>RCA</td><td>Embedded with BAAI bge-small-en-v1.5 (384 dimensions) and stored in PostgreSQL with pgvector. The development seed has 5 documents; production use adds team runbooks.</td></tr>
+      <tr><td>Failed build logs</td><td>RCA</td><td>A sample failed pytest log for the demo; real GitHub Actions logs once a repository is connected. Secrets are removed before storage or any model call.</td></tr>
+      <tr><td>Few-shot examples</td><td>RCA</td><td>Worked log → ranked-causes pairs that show the model the expected output.</td></tr>
+      <tr><td>OpenTofu configurations</td><td>Dependency Resolver</td><td>Demo infrastructure with an IAM role / policy / EKS cycle, plus test configurations.</td></tr>
+      <tr><td>Pull requests</td><td>Code Reviewer</td><td>A demo PR with data leakage; real PRs cloned read-only once connected. Ruff lint results and failing tests feed the review.</td></tr>
+      <tr><td>UCI Bank Marketing (45,211 rows)</td><td>Drift Detection</td><td>Split into 45% training, 20% reference and a production pool that is replayed batch by batch, with simulated covariate drift, concept drift and pipeline bugs.</td></tr>
+      <tr><td>Decisions and outcomes</td><td>Analytics</td><td>Runs, approvals and executions stored in PostgreSQL feed the Analytics pages: time to decision, findings by severity, reviewer time saved.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Machine learning and AI components</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Component</th><th>Technique</th><th>Objective it serves</th></tr></thead>
+    <tbody>
+      <tr><td>Retrieval-augmented diagnosis</td><td>Sentence embeddings, cosine search in pgvector (distance cutoff 0.3, calibrated on the seed), one query per error line, few-shot prompting of a reasoning LLM</td><td>O1</td></tr>
+      <tr><td>Answer validation</td><td>Structured JSON output, citations checked against retrieved documents, low-confidence causes dropped, retry when the model copies an example</td><td>O1, O5</td></tr>
+      <tr><td>Tool-using review agent</td><td>LLM function calling over a read-only toolbox, with forced submission at the end</td><td>O2</td></tr>
+      <tr><td>Graph analysis</td><td>Cycle detection on the resource dependency graph (networkx)</td><td>O3</td></tr>
+      <tr><td>Drift detection</td><td>Kolmogorov–Smirnov and PSI for numeric features; chi-square, Jensen–Shannon distance and PSI for categorical ones; ROC-AUC and F1 when labels arrive</td><td>O3</td></tr>
+      <tr><td>Production model under watch</td><td>HistGradientBoostingClassifier with permutation feature importance; versioned registry for promotion and rollback</td><td>O3</td></tr>
+      <tr><td>Intent classification</td><td>LLM triage with a confidence threshold, falling back to a human</td><td>O3, O4</td></tr>
+      <tr><td>LLM as a judge</td><td>A separate model family reviews proposals and can only escalate</td><td>O4</td></tr>
+      <tr><td>Observability</td><td>LangSmith tracing of every agent step and model call</td><td>O5</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Main technical choices</h3>
+  <ul class="plain">
+    <li><b>Deterministic orchestrator, LLMs inside the agents.</b> Routing and state live in code and in the database, so runs are repeatable, resumable after a crash and easy to test. LLMs are used where judgement adds value.</li>
+    <li><b>Different models for different jobs.</b> A reasoning model for root causes, a tool-calling model for code review, a small fast model for short tasks, and a different family for the judge.</li>
+    <li><b>Policy as code.</b> The approval rules are written in Rego and evaluated by Open Policy Agent, so they can be read, tested (20 policy tests) and changed without touching the agents.</li>
+    <li><b>PostgreSQL for everything.</b> Records, the event bus (LISTEN/NOTIFY), the vector store and the drift data share one database, set up by six numbered migrations. That means one system to run and back up.</li>
+    <li><b>Graceful degradation.</b> Each agent has a rule-based fallback, failing models are skipped for 30 seconds, and the Guardrail treats fallback output as less trustworthy.</li>
+  </ul>
+</section>
+
+<!-- 5 -->
+<section id="validation">
+  <h2><small>5</small>Validation and feedback</h2>
+  <div class="kpis">
+    <div class="kpi"><b>170</b><span>automated tests</span></div>
+    <div class="kpi"><b>152</b><span>passing</span></div>
+    <div class="kpi"><b>18</b><span>skipped (drift data missing)</span></div>
+    <div class="kpi"><b>20/20</b><span>policy tests</span></div>
+  </div>
+
+  <h3>Automated tests</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Area</th><th class="num">Tests</th><th>What they check</th></tr></thead>
+    <tbody>
+      <tr><td>Guardrail</td><td class="num">48</td><td>Risk scoring, every policy rule, approvals (self-approval, double votes, expiry), malformed events, audit chain</td></tr>
+      <tr><td>Drift Detection</td><td class="num">30</td><td>Statistical tests, PostgreSQL store, investigator; 18 skipped until the data package is committed</td></tr>
+      <tr><td>Code Reviewer</td><td class="num">27</td><td>Tools, safety limits, patch validation, LLM loop, end-to-end review</td></tr>
+      <tr><td>Orchestrator and GitHub</td><td class="num">26</td><td>Routing, triage, conditional steps, approvals sync, execution, recovery, GitHub alerts and sign-in</td></tr>
+      <tr><td>Shared platform</td><td class="num">14</td><td>Migrations, event bus delivery and retries, knowledge base</td></tr>
+      <tr><td>Dependency Resolver</td><td class="num">12</td><td>Static parser and classifier fallbacks</td></tr>
+      <tr><td>LLM client and redaction</td><td class="num">10</td><td>Per-agent model settings, reasoning output, cooldown, secret masking</td></tr>
+      <tr><td>LangSmith tracing</td><td class="num">3</td><td>No-op when off, client wrapped when on</td></tr>
+      <tr><td>OPA policy (Rego)</td><td class="num">20</td><td>Each rule and its order, run with <code>opa test</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>End-to-end checks with the real models</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Check</th><th>Result</th><th>Objective</th></tr></thead>
+    <tbody>
+      <tr><td>RCA on the failed pytest log</td><td><span class="pill ok">met</span> Correct top cause, with a real citation</td><td>O1</td></tr>
+      <tr><td>Code review of the leaky PR</td><td><span class="pill ok">met</span> Data leakage found among 6 findings; patch produced</td><td>O2</td></tr>
+      <tr><td>IAM cycle and merge conflict</td><td><span class="pill ok">met</span> Both detected and explained</td><td>O3</td></tr>
+      <tr><td>Risk escalation</td><td><span class="pill ok">met</span> Agent's "low" raised to "high" and held</td><td>O4</td></tr>
+      <tr><td>Approval rules</td><td><span class="pill ok">met</span> Self-approval refused (403); second vote refused (409)</td><td>O4</td></tr>
+      <tr><td>Audit integrity</td><td><span class="pill ok">met</span> Hash chain verified on the Audit page</td><td>O5</td></tr>
+      <tr><td>Unsure triage</td><td><span class="pill ok">met</span> Sent to a human instead of guessing</td><td>O4, O6</td></tr>
+      <tr><td>Model outage</td><td><span class="pill ok">met</span> Rule-based fallbacks used and the run marked degraded (unit-tested)</td><td>O6</td></tr>
+      <tr><td>Drift scenario</td><td><span class="pill bad">not yet</span> Agent cannot start without its data package</td><td>O3</td></tr>
+      <tr><td>Live GitHub repository</td><td><span class="pill warn">pending</span> Built and unit-tested; not yet run against a real account</td><td>O1, O2</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Benchmark: 64 cases with known answers</h3>
+  <p>To measure the agents rather than demo them, we built a separate benchmark repository (<code>opsagents-bench</code>). It contains a small churn-model project with CI, and 64 cases, each a change with a known right answer:</p>
+  <ul class="plain">
+    <li>8 pushes that break CI; the harness runs the real tests to get a real failing log;</li>
+    <li>8 pull requests: 6 with a planted ML mistake and 2 clean ones;</li>
+    <li>6 OpenTofu configurations;</li>
+    <li>5 branch pairs to merge;</li>
+    <li>15 incident reports to route;</li>
+    <li>22 proposals for the Guardrail.</li>
+  </ul>
+  <p>The expected answers were written before running the agents. The same cases were also run with every model unreachable, to measure what the LLMs add over the rule-based fallbacks.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Agent</th><th>Metric</th><th class="num">Live models</th><th class="num">Rules only</th></tr></thead>
+    <tbody>
+      <tr><td>Orchestrator</td><td>Correct route</td><td class="num"><b>13/15</b></td><td class="num">8/15</td></tr>
+      <tr><td></td><td>Requests only an LLM can route</td><td class="num">7/7</td><td class="num">0/7</td></tr>
+      <tr><td>Guardrail</td><td>Correct decision</td><td class="num"><b>20/22</b></td><td class="num">17/22</td></tr>
+      <tr><td></td><td>Unsafe auto-approvals (target 0)</td><td class="num"><b>1</b></td><td class="num">4</td></tr>
+      <tr><td></td><td>Risky changes with no keyword caught</td><td class="num">3/4</td><td class="num">0/4</td></tr>
+      <tr><td></td><td>Benign changes wrongly blocked</td><td class="num">0</td><td class="num">0</td></tr>
+      <tr><td>Diagnostic / RCA</td><td>Top cause correct</td><td class="num"><b>6/8</b></td><td class="num">4/8</td></tr>
+      <tr><td>Code Reviewer</td><td>Planted issues found</td><td class="num"><b>6/6</b></td><td class="num">0/6</td></tr>
+      <tr><td></td><td>False alarms on clean PRs</td><td class="num">0</td><td class="num">n/a</td></tr>
+      <tr><td>Dependency Resolver</td><td>Cycles detected, exact resources</td><td class="num">6/6</td><td class="num">6/6</td></tr>
+      <tr><td>Merge Assistant</td><td>Conflicts detected</td><td class="num">5/5</td><td class="num">5/5</td></tr>
+    </tbody>
+  </table></div>
+  <p><b>What it showed.</b></p>
+  <ul class="plain">
+    <li>The LLMs add the most to routing, to the Guardrail's judgement and to code review. Infrastructure and merge detection rely on graph analysis and git, so they score the same either way.</li>
+    <li>The failures are concrete and fixable:
+      <ul class="plain">
+        <li>a prompt injection in an incident report steered the router;</li>
+        <li>a patch that commented out the authentication middleware was auto-approved, the one unsafe decision;</li>
+        <li>a production model rollback that its agent labelled low needed one approver instead of two;</li>
+        <li>for an accuracy regression, the RCA agent copied an unrelated knowledge-base document instead of diagnosing the log.</li>
+      </ul>
+    </li>
+    <li>Answers vary between runs, so 64 cases is a first measurement, not a final score.</li>
+  </ul>
+
+  <h3>Limitations</h3>
+  <ul class="plain">
+    <li><b>No user accounts yet.</b> Who is acting is chosen in the dashboard, so the approval rules apply to names, not verified identities.</li>
+    <li><b>Nothing is written back to GitHub.</b> Approved patches are recorded as dry runs; draft PRs and review comments are not published yet.</li>
+    <li><b>The RCA knowledge base is small.</b> Five seed documents prove the pipeline but limit the quality of citations on unfamiliar failures.</li>
+    <li><b>A small evaluation set.</b> The 64-case benchmark is synthetic and small; the agents have not yet been measured on real incidents from the team's repositories.</li>
+    <li><b>Partial coverage of GitHub.</b> The app polls every 60 seconds instead of receiving webhooks, and merge and drift checks are not triggered from GitHub.</li>
+    <li><b>Local deployment only.</b> Free model tiers have rate limits; outages are absorbed by the fallbacks.</li>
+  </ul>
+
+  <h3>Difficulties encountered</h3>
+  <ul class="plain">
+    <li><b>Integrating six codebases.</b> The agents were written separately with different databases, model clients and environments. They now share one environment, one PostgreSQL database and one model client.</li>
+    <li><b>Model quirks.</b> DeepSeek-R1 returns nothing in JSON mode, so JSON is extracted from its free-text answer instead. Hugging Face coder models did not support tool calling, so the reviewer moved to Grok. Qwen 2.5 is only served through a specific provider.</li>
+    <li><b>Calibration.</b> The retrieval cutoff of 0.6 let irrelevant documents through; 0.3 was chosen on the seed set.</li>
+    <li><b>Missing code.</b> A broad <code>data/</code> ignore rule kept the drift agent's own package out of the repository.</li>
+  </ul>
+</section>
+
+<!-- 6 -->
+<section id="next">
+  <h2><small>6</small>Next steps</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Priority</th><th>Task</th><th>Owner</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill bad">P1</span></td><td>Commit the drift data package and train the first model, so the drift scenario runs end to end</td><td>omar</td></tr>
+      <tr><td><span class="pill bad">P1</span></td><td>Connect the team repository and validate the live flow: failing push → alert → RCA; new PR → review</td><td>Rayen</td></tr>
+      <tr><td><span class="pill bad">P1</span></td><td>Add the LangSmith API key and collect real traces: latency, tokens and error rate per agent</td><td>Rayen</td></tr>
+      <tr><td><span class="pill bad">P1</span></td><td>Install OpenTofu so the Dependency Resolver uses the real dependency graph</td><td>Lyna</td></tr>
+      <tr><td><span class="pill bad">P1</span></td><td>Fix the benchmark's findings: treat model rollbacks and disabled authentication as high risk in the Guardrail; harden the router against instructions inside incident text</td><td>Rayen</td></tr>
+      <tr><td><span class="pill warn">P2</span></td><td>Grow the benchmark (more cases per agent, repeated runs to measure variance) and run it on every change, with LangSmith evaluations</td><td>zrharounesprit, hendch</td></tr>
+      <tr><td><span class="pill warn">P2</span></td><td>Grow the RCA knowledge base with real runbooks and past incidents</td><td>zrharounesprit</td></tr>
+      <tr><td><span class="pill warn">P2</span></td><td>Sign people in with GitHub so approvals are tied to real identities</td><td>Rayen</td></tr>
+      <tr><td><span class="pill warn">P2</span></td><td>Publish approved patches as draft PRs and post review findings as PR comments</td><td>hendch</td></tr>
+      <tr><td><span class="pill warn">P2</span></td><td>Run the Merge Assistant on real PR branches</td><td>Muaad</td></tr>
+      <tr><td><span class="pill neutral">P3</span></td><td>Receive GitHub webhooks and deploy the platform</td><td>Team</td></tr>
+    </tbody>
+  </table></div>
+  <p>The first phase proved the architecture: specialist agents that propose, a guardrail that decides, and a person who approves what matters. The next phase is about measuring and improving the agents' accuracy on real data, using the evaluation sets and the LangSmith traces.</p>
+</section>
+
+<footer>Prepared for the Advanced Data Science prototype validation. Figures come from the code on branch <code>orchestrator</code> and test runs on 20 October 2026.</footer>
+</main>
+</div>
