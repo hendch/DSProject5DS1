@@ -10,6 +10,7 @@ doesn't flood the alerts.
 Token: GITHUB_TOKEN in .env, or pasted in Settings (stored in app_settings, never
 returned by the API). Needs read access to Contents, Actions, Checks and Pull requests.
 """
+import base64
 import os
 import re
 import subprocess
@@ -528,7 +529,12 @@ def failed_log(repo: str, run_id: int) -> str:
             text = _get(f"/repos/{repo}/actions/jobs/{job['id']}/logs", raw=True)
         except GitHubError as e:  # logs expired or not readable: fall back to the step list
             steps = [f"{s['name']}: {s.get('conclusion')}" for s in job.get("steps", [])]
-            text = f"(log unavailable: {e})\n" + "\n".join(steps)
+            text = (f"(the job log could not be read: {e}; only the step results are known, "
+                    "so the exact error message is missing)\n" + "\n".join(steps))
+            raise_alert("warning", f"Can't read CI logs for {repo}",
+                        f"{e}. Diagnoses will be guesses until the token can read Actions logs "
+                        "(fine-grained token: Actions read access to this repository; classic token: repo scope).",
+                        "github", "#/settings", f"logs-unreadable:{repo}")
         parts.append(f"=== job: {job['name']} ({job.get('conclusion')}) ===\n{tail(text, 250)}")
     return redact("\n\n".join(parts)) or "(no job logs found)"
 
@@ -568,16 +574,39 @@ def investigate(kind: str, key, orchestrator, requested_by: str | None = None, r
 IAC_LOG = re.compile(r"\b(tofu|terraform)\b", re.I)
 
 
+def _git_auth() -> list[str]:
+    """git over HTTPS takes a token as Basic auth (user x-access-token), in a one-off header
+    that never lands in the clone's config."""
+    tok = token()
+    if not tok:
+        return []
+    basic = base64.b64encode(f"x-access-token:{tok}".encode()).decode()
+    return ["-c", f"http.extraHeader=Authorization: Basic {basic}"]
+
+
 def checkout_commit(repo: str, sha: str, workdir: Path) -> Path:
-    """Shallow, read-only checkout of one commit (for its .tf files). Token as in checkout_pull_request."""
+    """Shallow, read-only checkout of one commit (for its .tf files). Falls back to no token,
+    which works for public repositories when the token has no access to this one."""
     dest = Path(workdir) / "commit"
-    auth = ["-c", f"http.extraHeader=Authorization: Bearer {token()}"] if token() else []
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-    for args, cwd in ((["init", "-q", str(dest)], None),
-                      (["fetch", "-q", "--depth", "1", f"https://github.com/{repo}.git", sha], dest),
-                      (["checkout", "-q", "FETCH_HEAD"], dest)):
+
+    def git(auth, *args, cwd=None):
         subprocess.run(["git", *auth, *args], cwd=cwd, check=True, capture_output=True, text=True,
                        timeout=300, env=env)
+
+    git([], "init", "-q", str(dest))
+    url = f"https://github.com/{repo}.git"
+    try:
+        git(_git_auth(), "fetch", "-q", "--depth", "1", url, sha, cwd=dest)
+    except subprocess.CalledProcessError as e:
+        if not _git_auth():
+            raise RuntimeError(f"can't fetch {repo}@{sha[:7]}: {(e.stderr or '').strip()[:200]}") from None
+        try:
+            git([], "fetch", "-q", "--depth", "1", url, sha, cwd=dest)
+        except subprocess.CalledProcessError as e2:
+            raise RuntimeError(f"can't fetch {repo}@{sha[:7]} (with or without the token): "
+                               f"{(e2.stderr or '').strip()[:200]}") from None
+    git([], "checkout", "-q", "FETCH_HEAD", cwd=dest)
     return dest
 
 
@@ -597,7 +626,7 @@ def checkout_pull_request(params: dict, workdir: Path) -> tuple[Path, str, str]:
     one-off HTTP header, never into the clone's config."""
     dest = Path(workdir) / "pr"
     url = f"https://github.com/{params['repo']}.git"
-    auth = ["-c", f"http.extraHeader=Authorization: Bearer {token()}"] if token() else []
+    auth = _git_auth()
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
 
     def git(*args, cwd=None):

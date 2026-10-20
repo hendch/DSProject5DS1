@@ -66,7 +66,9 @@ def diagnostic_rca(params: dict, ctx: dict) -> StepResult:
 def dependency_resolver(params: dict, ctx: dict) -> StepResult:
     tf_dir = params.get("tf_dir")
     if not tf_dir or not Path(tf_dir).is_dir():
-        return StepResult("skipped", "No OpenTofu/Terraform folder in this trigger.")
+        why = ctx["facts"].get("prepare_error")
+        return StepResult("skipped", f"Couldn't get the .tf files: {why}" if why
+                          else "No OpenTofu/Terraform folder in this trigger.")
     tf_files = sorted(Path(tf_dir).glob("*.tf"))
     if not tf_files:
         return StepResult("skipped", f"No .tf files in {Path(tf_dir).name}.")
