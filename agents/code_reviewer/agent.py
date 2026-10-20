@@ -144,4 +144,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    from shared import tracing
+
+    with tracing.from_parent_env():  # join the orchestrator's LangSmith trace when it passes one
+        code = main()
+    tracing.flush()
+    sys.exit(code)

@@ -5,6 +5,7 @@ from __future__ import annotations
 from openai import OpenAI
 
 from agents.drift_detection.config import LLMSettings
+from shared.tracing import wrap_client
 
 
 class GrokClient:
@@ -12,8 +13,9 @@ class GrokClient:
         if not settings.api_key:
             raise RuntimeError("XAI_API_KEY is not set. Copy .env.example to .env and add your key.")
         self.model = settings.model
-        self.client = OpenAI(api_key=settings.api_key, base_url=settings.base_url,
-                             timeout=settings.timeout_seconds, max_retries=settings.max_retries)
+        self.client = wrap_client(OpenAI(api_key=settings.api_key, base_url=settings.base_url,
+                                         timeout=settings.timeout_seconds, max_retries=settings.max_retries),
+                                  "drift_detection")
 
     def chat(self, messages: list[dict], tools: list[dict] | None = None, temperature: float | None = None,
              tool_choice: str = "auto"):

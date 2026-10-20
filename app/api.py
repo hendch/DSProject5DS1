@@ -4,6 +4,7 @@ Everything the UI shows comes from here: runs, approvals, GitHub activity, alert
 analytics, agents and the audit log. `create_app(orchestrator)` wires it to a running
 orchestrator; app/__main__.py starts the whole platform.
 """
+import os
 import shutil
 import time
 import uuid
@@ -21,7 +22,7 @@ from agents.guardrail import store as guardrail_store
 from agents.guardrail.announce import announce
 from agents.orchestrator import analytics, github, store
 from agents.orchestrator.catalog import AGENTS, ROUTES, SCENARIOS, SCENARIOS_BY_ID
-from shared import alerts, knowledge
+from shared import alerts, knowledge, tracing
 from shared.events import list_events
 from shared.llm import for_agent
 
@@ -205,7 +206,8 @@ def create_app(orchestrator) -> FastAPI:
                            "head": {"short_sha": head["sha"][:7], "message": head["title"], "ci": head["ci"],
                                     "html_url": head["html_url"], "time": head["time"]} if head else None,
                            **github.counts()},
-                "system": {"database": db_ok(), "policy_engine": opa_ok(), "audit_intact": audit_intact()}}
+                "system": {"database": db_ok(), "policy_engine": opa_ok(), "audit_intact": audit_intact(),
+                           "tracing": {"enabled": tracing.enabled(), "project": os.getenv("LANGSMITH_PROJECT", "opsagents")}}}
 
     @app.get("/api/scenarios")
     def scenarios():

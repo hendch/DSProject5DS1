@@ -13,6 +13,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from shared import tracing
 from shared.llm import profile
 from shared.redact import redact, tail
 
@@ -151,7 +152,7 @@ def _run_reviewer(facts: dict, out: Path, review_json: Path | None, diagnosis: s
         argv += ["--diagnosis", str(note)]
     prof = profile("code_reviewer")
     env = {**os.environ, "LLM_BACKEND": "openai", "LLM_BASE_URL": prof.base_url,
-           "LLM_MODEL": prof.model, "LLM_API_KEY": prof.api_key, "PYTHONPATH": str(ROOT)}
+           "LLM_MODEL": prof.model, "LLM_API_KEY": prof.api_key, "PYTHONPATH": str(ROOT), **tracing.child_env()}
     subprocess.run(argv, cwd=ROOT, env=env, capture_output=True, text=True, timeout=900)
     report = out / "report.json"
     return json.loads(report.read_text(encoding="utf-8")) if report.exists() else {"status": "review_failed"}

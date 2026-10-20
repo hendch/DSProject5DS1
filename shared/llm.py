@@ -25,6 +25,8 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
+from shared.tracing import wrap_client
+
 load_dotenv()
 COOLDOWN_SECONDS = float(os.getenv("LLM_COOLDOWN", "30"))
 _THINK = re.compile(r"<think>(.*?)</think>", re.DOTALL)
@@ -123,9 +125,9 @@ class LLM:
             kwargs["max_tokens"] = max(max_tokens or 0, self.profile.max_tokens or 0)
         try:
             from openai import OpenAI
-            client = OpenAI(base_url=self.profile.base_url, api_key=self.profile.api_key or "none",
-                            timeout=self.profile.timeout, max_retries=1)
-            text = client.chat.completions.create(**kwargs).choices[0].message.content or ""
+            client = wrap_client(OpenAI(base_url=self.profile.base_url, api_key=self.profile.api_key or "none",
+                                        timeout=self.profile.timeout, max_retries=1), self.profile.agent)
+            text =client.chat.completions.create(**kwargs).choices[0].message.content or ""
         except Exception as e:  # noqa: BLE001 - connection, auth, rate limit, model missing
             with _lock:
                 _down_until[self._key()] = time.monotonic() + COOLDOWN_SECONDS

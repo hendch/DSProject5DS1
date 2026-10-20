@@ -1961,6 +1961,9 @@
         check('Audit chain', hasVal(sys.audit_intact) ? sys.audit_intact : o.audit_intact, 'intact', 'broken') +
         check('LLM' + (o.llm && o.llm.label ? ' (' + o.llm.label + ')' : ''), o.llm ? o.llm.ok !== false : undefined, 'reachable', 'unavailable') +
         check('Server', !state.offline, 'reachable', 'unreachable') +
+        (sys.tracing ? '<div><span>LangSmith tracing' + (sys.tracing.enabled ? ' (project ' + esc(sys.tracing.project) + ')' : '') + '</span>' +
+          (sys.tracing.enabled ? '<a href="https://smith.langchain.com" target="_blank" rel="noopener">' + pill('ok', 'on') + '</a>'
+                               : pill('unknown', 'off')) + '</div>' : '') +
         '</div>');
     }
   };

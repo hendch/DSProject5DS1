@@ -122,7 +122,10 @@ def run_review(ctx: ReviewContext, toolbox: ToolBox, policy: Policy, cfg: LLMCon
     if client is None:
         from openai import OpenAI
 
-        client = OpenAI(base_url=cfg.base_url, api_key=cfg.api_key, timeout=180, max_retries=2)
+        from shared.tracing import wrap_client
+
+        client = wrap_client(OpenAI(base_url=cfg.base_url, api_key=cfg.api_key, timeout=180, max_retries=2),
+                             "code_reviewer")
 
     limits = policy.limits
     messages: list[dict] = [

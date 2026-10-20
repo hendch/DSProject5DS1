@@ -20,6 +20,7 @@ from agents.orchestrator.catalog import AGENTS, ROUTES
 from shared.alerts import raise_alert
 from shared.db import get_connection
 from shared.events import Consumer, make_event, publish, publish_and_log
+from shared import tracing
 from shared.llm import LLMUnavailable, for_agent
 
 CONSUMER = "orchestrator"
@@ -79,10 +80,14 @@ class Orchestrator:
         if run is None:
             return
         if run["status"] == "received":
-            if not self._route(run):
-                return
-            self._run_agents(store.get_run(run_id))
-            run = store.get_run(run_id)
+            with tracing.span(f"run: {run['trigger'].get('title', 'untitled')}", inputs={"trigger": run["trigger"]},
+                              metadata=self._trace_meta(run), tags=["orchestrator"]) as span:
+                if not self._route(run):
+                    span.outputs({"status": "needs_triage"})
+                    return
+                self._run_agents(store.get_run(run_id))
+                run = store.get_run(run_id)
+                span.outputs({"status": run["status"], "route": run["route"], "routed_by": run["routed_by"]})
         if run["status"] == "waiting_approval":
             self._sync_decisions(run_id)
             if any(a["decision"] == "pending" for a in store.get_actions(run_id)):
@@ -90,7 +95,15 @@ class Orchestrator:
             store.update_run(run_id, status="executing")
             run = store.get_run(run_id)
         if run["status"] == "executing":
-            self._execute(run_id)
+            with tracing.span("execute and summarise", metadata=self._trace_meta(run), tags=["orchestrator"]) as span:
+                self._execute(run_id)
+                span.outputs({"summary": (store.get_run(run_id) or {}).get("summary")})
+
+    @staticmethod
+    def _trace_meta(run: dict) -> dict:
+        # thread_id groups every trace of one run (agents now, execution after approval) in LangSmith
+        return {"run_id": str(run["id"]), "thread_id": str(run["id"]), "route": run.get("route"),
+                "requested_by": run.get("requested_by")}
 
     def _route(self, run: dict) -> bool:
         trigger = run["trigger"]
@@ -130,7 +143,11 @@ class Orchestrator:
                 store.finish_step(step_id, "skipped", {"summary": f"Not needed: no {step['when'].replace('_', ' ')}."})
                 continue
             try:
-                result = adapters.ADAPTERS[agent](params, ctx)
+                with tracing.span(AGENTS[agent]["title"], inputs={k: str(v)[:500] for k, v in params.items()},
+                                  metadata={**self._trace_meta(run), "agent": agent}, tags=[agent]) as span:
+                    result = adapters.ADAPTERS[agent](params, ctx)
+                    span.outputs({"status": result.status, "summary": result.summary,
+                                  "proposals": [p.action_type for p in result.proposals]})
             except Exception as e:  # noqa: BLE001 - one agent failing doesn't stop the others
                 traceback.print_exc()
                 store.finish_step(step_id, "failed", {"summary": "The agent crashed."}, f"{type(e).__name__}: {e}")

@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 from agents.guardrail import llm_judge, policy_client, store
 from agents.guardrail.announce import announce
 from agents.guardrail.risk import ADVISORY, assess, validate
+from shared import tracing
 from shared.events import Consumer
 
 load_dotenv()
@@ -57,7 +58,14 @@ def process_event(event: dict) -> str:
         print(f"[guardrail] rejected malformed event: {problems}")
         return "malformed"
 
-    risk, signals, verdict, llm = decide(event)
+    with tracing.span(f"guardrail: {event['agent_name']}/{event['action_type']}",
+                      inputs={"action_type": event["action_type"], "environment": event["environment"],
+                              "declared": event["blast_radius"]},
+                      metadata={"run_id": event["correlation_id"], "thread_id": event["correlation_id"],
+                                "agent": "guardrail"}, tags=["guardrail"]) as span:
+        risk, signals, verdict, llm = decide(event)
+        span.outputs({"risk": risk, "decision": verdict["decision"], "rule": verdict["rule"],
+                      "llm_risky": (llm or {}).get("risky")})
     payload = event["payload"]
     requested_by = event.get("triggered_by") or payload.get("triggered_by")
     approval = store.record_decision(event, risk, signals, verdict, llm, requested_by)
