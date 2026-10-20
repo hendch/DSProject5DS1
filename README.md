@@ -1,77 +1,114 @@
-# DSProject5DS1: multi-agent DevOps / MLOps assistant
+# OpsAgents: an AI control centre for your repositories
 
-Specialist agents analyse problems and **propose** actions. The **guardrail** decides
-whether each proposal is approved automatically, held for a human, or rejected. The
-**orchestrator** (in progress) routes events to the right agents and executes only what
-was approved. Every step is recorded in one tamper-evident audit log.
+Connect your GitHub repositories and OpsAgents watches every commit, CI run and pull
+request. When something breaks, specialist agents investigate on their own; every action
+they propose goes through a guardrail; anything risky waits for a human; and everything is
+recorded in a tamper-evident audit log.
+
+```
+GitHub (commits · CI · PRs) ─┐                      ┌─► Dependency Resolver   OpenTofu cycles
+Dashboard (scenarios, text) ─┼─► ORCHESTRATOR ──────┼─► Diagnostic / RCA      root causes (RAG)
+                             │   rules → LLM triage │─► Merge Assistant       merge conflicts
+                             │   → human triage     ├─► Code Reviewer         ML/MLOps PR review
+                             │                      └─► Drift Detection       model drift
+                             │          proposals ▼
+                             │   GUARDRAIL: real risk · OPA policy · LLM judge (escalate only)
+                             │          auto-approve │ hold for humans │ reject
+                             └─► execute approved actions · alerts · hash-chained audit log
+```
+
+## Start it
+
+Requires Python 3.12. No Docker needed for a demo.
+
+```bash
+python -m venv venv
+venv\Scripts\activate                 # Windows (source venv/bin/activate elsewhere)
+python -m pip install -e ".[dev]"
+copy .env.example .env                # LLM settings (local Ollama by default)
+python -m app                         # opens http://localhost:8080
+```
+
+`python -m app` starts an embedded PostgreSQL (with pgvector) and OPA, applies every
+migration, then runs the guardrail, the orchestrator, the GitHub watcher and the
+dashboard. Stop it with Ctrl+C. Each start uses a fresh database; for a persistent one:
+
+```bash
+docker compose up -d                  # PostgreSQL + OPA
+python -m shared.migrate
+python -m app --docker
+```
+
+## Use it
+
+- **Home**: repository health, start a demo scenario, describe an incident in plain text.
+- **Activity**: every commit and pull request with its CI status (green / red / running);
+  investigate any failure in one click.
+- **Runs**: each investigation's agent steps, proposals, decisions and timeline.
+- **Approvals**: approve or reject held proposals (no self-approval; production + high
+  risk needs two people; approvals expire).
+- **Triage**: incidents the rules and the LLM couldn't route; a human picks the route.
+- **Alerts**: CI failures, recoveries, approvals needed, agents unavailable; desktop
+  notifications if you allow them.
+- **Analytics**: runs, decisions, review findings, CI pass rate, recovery time, per agent.
+- **Agents / Audit log / Settings**: each agent's model and health, the hash-chain check,
+  GitHub connection and options.
+
+### Connect GitHub
+
+Create a fine-grained token with **read** access to *Contents*, *Actions*, *Checks* and
+*Pull requests* on the repositories you want to follow, then paste it in **Settings**
+(or set `GITHUB_TOKEN` in `.env`). Add more repositories from **Repositories**. The app
+polls GitHub every 60 s (webhooks can't reach a laptop); existing history is recorded
+without alerts, and each new failure is alerted and investigated exactly once. With
+*auto-investigate* on, a failed CI run starts the RCA agent on the real job log (secrets
+removed) and a new pull request gets a code review.
+
+## Models
+
+Every agent talks to an OpenAI-compatible endpoint (local Ollama, the Hugging Face router,
+xAI…), set once in `.env` with per-agent overrides:
+
+| Role | Default | Why |
+|---|---|---|
+| Dependency Resolver, Merge Assistant, Drift, orchestrator triage | `llama3.1:8b` | one consistent default |
+| Diagnostic / RCA | reasoning model (`DIAGNOSTIC_RCA_LLM_MODEL`) | multi-step diagnosis |
+| Code Reviewer | code model (`CODE_REVIEWER_LLM_MODEL`) | reads diffs |
+| Guardrail judge | different family (`GUARDRAIL_LLM_MODEL`) | independent from the agents it judges |
+
+When a model is unreachable, every agent falls back to rules and the run is marked
+*degraded*; the guardrail's rules never depend on an LLM.
+
+## Safety by design
+
+- Agents only **propose**; only the orchestrator executes, and only after approval.
+- The guardrail recomputes risk from evidence (it never lowers an agent's own label),
+  applies version-controlled OPA rules, and its LLM judge can only make decisions stricter.
+- Fail closed: policy engine down → everything is held for a human.
+- Text written by agents, commits or CI logs is treated as data, never as instructions.
+- GitHub actions are dry runs unless `ORCHESTRATOR_GITHUB_PUBLISH=true`; nothing ever merges.
+- One PostgreSQL holds everything; an action and its event are written in one transaction;
+  the audit log is append-only and hash-chained.
 
 ## Layout
 
 ```
-pyproject.toml          one environment for every agent:  pip install -e ".[dev]"
-.env.example            one settings file for every agent (copy to .env)
-docker-compose.yml      postgres (with pgvector) and opa
-db/migrations/          numbered SQL files, applied with: python -m shared.migrate
-shared/                 code every agent uses: database, event bus, knowledge base, migrations
+app/                    python -m app: API (FastAPI) + launcher
+web/                    the dashboard (static, no build step)
 agents/
+  orchestrator/         routing, run lifecycle, adapters, executors, GitHub watcher, analytics
+  guardrail/            Rayen           risk, OPA policy, LLM judge, approvals, audit
   dependency_resolver/  Lyna            circular dependencies in OpenTofu code
-  diagnostic_rca/       zrharounesprit  root causes of failed CI builds (RAG on pgvector)
-  merge_assistant/      Muaad           git merge conflicts and proposed resolutions
+  diagnostic_rca/       zrharounesprit  root causes of failed builds (RAG on pgvector)
+  merge_assistant/      Muaad           merge conflicts and proposed resolutions
   code_reviewer/        hendch          ML/MLOps review of pull requests, safe lint fixes
   drift_detection/      omar            data and concept drift on a deployed model
-  guardrail/            Rayen           policy gate, human approvals, audit log
-  orchestrator/         (to build)      routing, pause/resume, execution
-corpus/                 knowledge base ingestion for the RCA agent (to build)
-demo/                   code reviewer local demo scenarios
+shared/                 database, event bus, knowledge base, LLM client, alerts, migrations
+db/migrations/          numbered SQL files (python -m shared.migrate)
+demo/                   demo scenarios (code review repos, IAM cycle)
 ml_demo/                small ML project targeted by the seeded demo pull request
-.github/workflows/      code review agent on pull requests
+tests/                  platform tests; each agent keeps its own tests in its folder
 ```
-
-Each agent keeps its own README and tests in its folder.
-
-## Setup
-
-Requires Python 3.12 and Docker Desktop.
-
-```bash
-python -m venv venv
-venv\Scripts\activate              # Windows (source venv/bin/activate elsewhere)
-python -m pip install -e ".[dev]"
-copy .env.example .env             # then fill in keys if you use a hosted LLM
-docker compose up -d               # PostgreSQL + OPA
-python -m shared.migrate           # create or update every table
-```
-
-## One database for everything
-
-PostgreSQL is the only data store:
-
-| Area | Schema | What |
-|---|---|---|
-| Records | `public` | `actions`, `approvals`, `approval_votes`, hash-chained `reasoning_logs` |
-| Event bus | `public` | `events` (append-only log, LISTEN/NOTIFY) + `event_receipts` per consumer |
-| Orchestrator | `orchestrator` | `runs`, `run_steps`, `run_actions` |
-| Knowledge base | `knowledge` | RCA documents + embeddings (pgvector) |
-| Drift | `drift` | batches, runs, reports, feature results, model versions |
-
-An agent's action, its audit row and its event are written in one transaction, so
-they can never disagree. Tests and demos use an embedded PostgreSQL (`pgserver`), so
-Docker is only needed for a persistent database.
-
-LLM: by default every agent uses a local model through [Ollama](https://ollama.com)
-(`ollama pull llama3.1:8b`). Any OpenAI-compatible endpoint (Hugging Face router, xAI…)
-works by changing `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` in `.env`.
-
-## Running the agents
-
-| Agent | Command |
-|---|---|
-| Dependency Resolver | `python -m agents.dependency_resolver.agent` |
-| Diagnostic / RCA | `python -m agents.diagnostic_rca.agent [log file]` |
-| Merge Assistant | `python -m agents.merge_assistant.agent` |
-| Code Reviewer | `python demo/run_local_demo.py --scenario leaky_pr` |
-| Drift Detection | `drift-agent init`, then `drift-agent serve` (port 8001) |
-| Guardrail | `python -m agents.guardrail.playground` (everything in one command, port 8090) |
 
 ## Tests
 
@@ -79,24 +116,15 @@ works by changing `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` in `.env`.
 python -m pytest
 ```
 
-## Integration status
+They run on a throwaway PostgreSQL and the real OPA policy; no Docker or LLM needed.
 
-The branches of all six agents are merged here and share one environment. Known
-issues before the orchestrator can link them:
+## Known gaps
 
 - **drift_detection**: its `data/` package (dataset download and simulator) was never
-  pushed, because the old `.gitignore` hid every folder named `data/`. Push it with
-  `git add agents/drift_detection/data` (the rule is fixed); until then the agent can't
-  start. Its generated files now go to `agents/drift_detection/runtime/`.
-- **drift_detection** stores its data in PostgreSQL (schema `drift`) and copies its
-  audit entries into the shared hash-chained log; its approval flow still runs on its
-  own until the orchestrator routes model changes through the guardrail.
-- **code_reviewer**: the workflow still checks out the agent from the `code-reviewer`
-  branch (`vars.AGENT_REF`). Point it at this branch once merged. Its baseline
-  `pytest` runs at the repository root, which now holds every agent's tests; scope it to
-  `ml_demo/`.
-- **diagnostic_rca** and **merge_assistant** have no LLM fallback yet.
-- Only the guardrail, dependency_resolver, diagnostic_rca and merge_assistant use the
-  shared event bus; code_reviewer and drift_detection get adapters in the orchestrator.
-- The knowledge base is empty until `corpus/ingest.py` (Member E) fills it; for tests,
-  `python -m agents.diagnostic_rca.seed_dev_kb` adds 5 sample documents.
+  pushed; until it is, the agent shows as *unavailable*. Push it with
+  `git add agents/drift_detection/data`.
+- **code_reviewer**: its own GitHub workflow still checks out the agent from the
+  `code-reviewer` branch (`vars.AGENT_REF`) and runs `pytest` at the repository root;
+  scope it to `ml_demo/` once merged.
+- Approvers type their name: real sign-in is needed before approvals change real systems.
+- The knowledge base holds 5 sample documents until `corpus/ingest.py` (Member E) fills it.

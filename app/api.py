@@ -51,6 +51,14 @@ class Connect(BaseModel):
     token: str = Field(min_length=8, max_length=400)
 
 
+class TokenBody(BaseModel):
+    token: str = Field(min_length=8, max_length=400)
+
+
+class ClientIdBody(BaseModel):
+    client_id: str = Field(min_length=10, max_length=60)
+
+
 class RepoBody(BaseModel):
     repo: str = Field(min_length=3, max_length=200)
 
@@ -192,7 +200,8 @@ def create_app(orchestrator) -> FastAPI:
         return {"runs": store.run_counts(), "pending_approvals": len(store.pending_approvals()),
                 "audit_intact": audit_intact(), "alerts_unread": alerts.unread_count(),
                 "llm": {"label": for_agent().label, "ok": llm_ok},
-                "github": {"connected": gh["connected"], "repo": gh["repo"], "repos": gh["repos"],
+                "github": {"connected": gh["connected"], "signed_in": gh["signed_in"], "repo": gh["repo"],
+                           "repos": gh["repos"], "last_sync": gh["last_sync"], "login": gh["login"],
                            "head": {"short_sha": head["sha"][:7], "message": head["title"], "ci": head["ci"],
                                     "html_url": head["html_url"], "time": head["time"]} if head else None,
                            **github.counts()},
@@ -327,6 +336,43 @@ def create_app(orchestrator) -> FastAPI:
         except github.GitHubError as e:
             gh_error(e)
 
+    @app.post("/api/github/token")
+    def gh_token(body: TokenBody):
+        """Sign in by pasting a personal access token (alternative to the browser sign-in)."""
+        try:
+            return github.sign_in(body.token.strip(), auth="token")
+        except github.GitHubError as e:
+            gh_error(e)
+
+    @app.post("/api/github/oauth/client")
+    def gh_oauth_client(body: ClientIdBody):
+        try:
+            github.set_client_id(body.client_id)
+        except github.GitHubError as e:
+            gh_error(e)
+        return github.status()
+
+    @app.post("/api/github/oauth/start")
+    def gh_oauth_start():
+        try:
+            return github.device_start()
+        except github.GitHubError as e:
+            gh_error(e)
+
+    @app.post("/api/github/oauth/poll")
+    def gh_oauth_poll():
+        try:
+            return github.device_poll()
+        except github.GitHubError as e:
+            gh_error(e)
+
+    @app.get("/api/github/available-repos")
+    def gh_available():
+        try:
+            return github.available_repos()
+        except github.GitHubError as e:
+            gh_error(e)
+
     @app.post("/api/github/disconnect")
     def gh_disconnect():
         github.disconnect()
@@ -394,6 +440,17 @@ def create_app(orchestrator) -> FastAPI:
     if (WEB / "index.html").exists():
         @app.get("/", include_in_schema=False)
         def index():
-            return FileResponse(WEB / "index.html")
-        app.mount("/", StaticFiles(directory=WEB), name="web")
+            return FileResponse(WEB / "index.html", headers=NO_CACHE)
+        app.mount("/", FreshStaticFiles(directory=WEB), name="web")
     return app
+
+
+# The dashboard is small: always revalidate it, so an update is never hidden by a stale cache.
+NO_CACHE = {"Cache-Control": "no-cache"}
+
+
+class FreshStaticFiles(StaticFiles):
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response

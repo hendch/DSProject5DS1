@@ -43,6 +43,8 @@ class Profile:
     api_key: str
     model: str
     timeout: float
+    json_mode: bool = True          # some reasoning models answer empty in JSON mode
+    max_tokens: int | None = None   # reasoning models need room to think
 
     @property
     def label(self) -> str:
@@ -57,11 +59,14 @@ def profile(agent: str | None = None) -> Profile:
             return os.environ[f"{agent.upper()}_LLM_{name}"]
         return os.getenv(f"LLM_{name}") or default
 
+    max_tokens = pick("MAX_TOKENS", "")
     return Profile(agent or "default",
                    pick("BASE_URL", "http://localhost:11434/v1").rstrip("/"),
                    pick("API_KEY", "ollama"),
                    pick("MODEL", "llama3.1:8b"),
-                   float(pick("TIMEOUT", "60")))
+                   float(pick("TIMEOUT", "60")),
+                   pick("JSON_MODE", "true").lower() not in ("false", "0", "no", "off"),
+                   int(max_tokens) if max_tokens else None)
 
 
 def split_reasoning(text: str) -> tuple[str, str]:
@@ -112,10 +117,10 @@ class LLM:
         messages = ([{"role": "user", "content": prompt_or_messages}]
                     if isinstance(prompt_or_messages, str) else list(prompt_or_messages))
         kwargs = {"model": self.profile.model, "messages": messages, "temperature": temperature}
-        if json_mode:
+        if json_mode and self.profile.json_mode:
             kwargs["response_format"] = {"type": "json_object"}
-        if max_tokens:
-            kwargs["max_tokens"] = max_tokens
+        if max_tokens or self.profile.max_tokens:
+            kwargs["max_tokens"] = max(max_tokens or 0, self.profile.max_tokens or 0)
         try:
             from openai import OpenAI
             client = OpenAI(base_url=self.profile.base_url, api_key=self.profile.api_key or "none",

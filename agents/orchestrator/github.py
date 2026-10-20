@@ -11,6 +11,7 @@ Token: GITHUB_TOKEN in .env, or pasted in Settings (stored in app_settings, neve
 returned by the API). Needs read access to Contents, Actions, Checks and Pull requests.
 """
 import os
+import re
 import subprocess
 import threading
 import time
@@ -172,11 +173,112 @@ def update_settings(**changes) -> dict:
 def status() -> dict:
     cfg = config() or {}
     names = list(repos())
-    return {"connected": bool(cfg and token() and names), "repo": names[0] if names else None, "repos": names,
-            "login": cfg.get("login"), "avatar_url": cfg.get("avatar_url"),
+    return {"connected": bool(cfg and token() and names), "signed_in": bool(cfg.get("login") and token()),
+            "repo": names[0] if names else None, "repos": names,
+            "login": cfg.get("login"), "avatar_url": cfg.get("avatar_url"), "auth": cfg.get("auth"),
             "last_sync": _state["last_sync"], "rate_limit": _state["rate_limit"], "error": _state["error"],
             "poll_seconds": cfg.get("poll_seconds", 60), "auto_investigate": cfg.get("auto_investigate", True),
-            "token_from_env": bool(os.getenv("GITHUB_TOKEN"))}
+            "token_from_env": bool(os.getenv("GITHUB_TOKEN")), "oauth_ready": bool(client_id())}
+
+
+# ---- "Sign in with GitHub" (OAuth device flow) ---------------------------------------------------
+# The user opens github.com/login/device, types the code shown by the app and authorises it;
+# meanwhile the app polls GitHub for the token. Needs the Client ID of a GitHub OAuth App with
+# "Device flow" enabled (GITHUB_CLIENT_ID in .env, or pasted once in Settings; it isn't secret).
+DEVICE_URL = "https://github.com/login/device/code"
+TOKEN_URL = "https://github.com/login/oauth/access_token"
+OAUTH_SCOPES = "repo read:user"  # OAuth apps have no read-only scope for private repositories
+_device: dict = {}
+
+
+def client_id() -> str | None:
+    return os.getenv("GITHUB_CLIENT_ID") or get_setting("github_client_id")
+
+
+def set_client_id(value: str) -> None:
+    value = (value or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9._-]{10,60}", value):
+        raise GitHubError(400, "that doesn't look like a GitHub OAuth App Client ID")
+    set_setting("github_client_id", value)
+
+
+def _oauth_post(url: str, data: dict) -> dict:
+    try:
+        r = httpx.post(url, data=data, headers={"Accept": "application/json"}, timeout=20)
+    except httpx.HTTPError as e:
+        raise GitHubError(0, f"can't reach GitHub ({type(e).__name__})") from None
+    if r.status_code >= 400:
+        raise GitHubError(r.status_code, f"GitHub answered {r.status_code}: {r.text[:200]}")
+    return r.json()
+
+
+def device_start() -> dict:
+    cid = client_id()
+    if not cid:
+        raise GitHubError(400, "add your GitHub OAuth App's Client ID first (Settings)")
+    data = _oauth_post(DEVICE_URL, {"client_id": cid, "scope": OAUTH_SCOPES})
+    if "device_code" not in data:
+        raise GitHubError(400, data.get("error_description") or "GitHub refused to start the sign-in "
+                          "(is Device flow enabled on the OAuth App?)")
+    _device.clear()
+    _device.update(code=data["device_code"], interval=int(data.get("interval", 5)),
+                   expires=time.monotonic() + int(data.get("expires_in", 900)), next_poll=0.0)
+    return {"user_code": data["user_code"], "verification_uri": data["verification_uri"],
+            "expires_in": data.get("expires_in", 900), "interval": _device["interval"]}
+
+
+def device_poll() -> dict:
+    """Ask GitHub whether the user has authorised yet. Safe to call often: it respects
+    GitHub's interval and only calls GitHub when allowed."""
+    if not _device:
+        return {"state": "idle"}
+    if time.monotonic() > _device["expires"]:
+        _device.clear()
+        return {"state": "expired"}
+    if time.monotonic() < _device["next_poll"]:
+        return {"state": "pending"}
+    _device["next_poll"] = time.monotonic() + _device["interval"]
+    data = _oauth_post(TOKEN_URL, {"client_id": client_id(), "device_code": _device["code"],
+                                   "grant_type": "urn:ietf:params:oauth:grant-type:device_code"})
+    error = data.get("error")
+    if error == "authorization_pending":
+        return {"state": "pending"}
+    if error == "slow_down":
+        _device["interval"] = int(data.get("interval", _device["interval"] + 5))
+        return {"state": "pending"}
+    if error in ("expired_token", "access_denied"):
+        _device.clear()
+        return {"state": "expired" if error == "expired_token" else "denied"}
+    if "access_token" not in data:
+        _device.clear()
+        raise GitHubError(400, data.get("error_description") or f"sign-in failed ({error})")
+    _device.clear()
+    sign_in(data["access_token"], auth="oauth")
+    return {"state": "connected", **status()}
+
+
+def sign_in(tok: str, auth: str = "token") -> dict:
+    """Store a token and who it belongs to. Repositories are added afterwards."""
+    user = _get("/user", tok)
+    cfg = config() or {}
+    set_setting("github_token", tok)
+    set_setting("github", {**cfg, "login": user["login"], "avatar_url": user.get("avatar_url"), "auth": auth,
+                           "repos": cfg.get("repos") or {},
+                           "auto_investigate": cfg.get("auto_investigate", True),
+                           "poll_seconds": cfg.get("poll_seconds", 60)})
+    _state["error"] = None
+    raise_alert("success", f"Signed in to GitHub as {user['login']}", "Choose the repositories to follow.",
+                "github", "#/repositories", None)
+    return status()
+
+
+def available_repos() -> list[dict]:
+    """Repositories the signed-in user can see, most recently pushed first, for the picker."""
+    followed = set(repos())
+    items = _get("/user/repos", params={"per_page": 100, "sort": "pushed", "affiliation": "owner,collaborator,organization_member"})
+    return [{"repo": r["full_name"], "private": r["private"], "default_branch": r.get("default_branch"),
+             "pushed_at": r.get("pushed_at"), "description": r.get("description"),
+             "followed": r["full_name"] in followed} for r in items]
 
 
 def repo_summary(repo: str) -> dict:

@@ -337,3 +337,52 @@ class GitHubWatcher(DbTestCase):
         with self.assertRaises(github.GitHubError) as ctx:
             github.investigate("commit", "b2", self.orch)
         self.assertEqual(ctx.exception.status, 409)
+
+
+class BrowserSignIn(DbTestCase):
+    """GitHub's OAuth device flow, with GitHub faked."""
+
+    def setUp(self):
+        super().setUp()
+        github._device.clear()
+        self.answers = []
+        self.posts = mock.patch.object(github, "_oauth_post", side_effect=lambda url, data: self.answers.pop(0))
+        self.posts.start()
+        self.addCleanup(self.posts.stop)
+        get = mock.patch.object(github, "_get", side_effect=lambda path, tok=None, params=None, raw=False:
+                                {"login": "rayen", "avatar_url": None} if path == "/user" else
+                                [{"full_name": "o/r", "private": False, "default_branch": "main"}])
+        get.start()
+        self.addCleanup(get.stop)
+
+    def test_needs_a_client_id_first(self):
+        with mock.patch.dict("os.environ", {"GITHUB_CLIENT_ID": ""}):
+            with self.assertRaises(github.GitHubError):
+                github.device_start()
+            with self.assertRaises(github.GitHubError):
+                github.set_client_id("not a client id!")
+
+    def test_code_then_pending_then_signed_in(self):
+        github.set_client_id("Ov23liABCDEFGH123456")
+        self.answers = [{"device_code": "dc", "user_code": "ABCD-1234", "verification_uri": "https://github.com/login/device",
+                         "expires_in": 900, "interval": 0},
+                        {"error": "authorization_pending"}, {"access_token": "gho_" + "x" * 36}]
+        start = github.device_start()
+        self.assertEqual(start["user_code"], "ABCD-1234")
+        self.assertEqual(github.device_poll()["state"], "pending")
+        done = github.device_poll()
+        self.assertEqual(done["state"], "connected")
+        status = github.status()
+        self.assertTrue(status["signed_in"])
+        self.assertFalse(status["connected"])  # signed in, but no repository chosen yet
+        self.assertEqual((status["login"], status["auth"]), ("rayen", "oauth"))
+        self.assertEqual(github.available_repos()[0]["repo"], "o/r")
+
+    def test_denied_and_expired(self):
+        github.set_client_id("Ov23liABCDEFGH123456")
+        self.answers = [{"device_code": "dc", "user_code": "X", "verification_uri": "u", "interval": 0},
+                        {"error": "access_denied"}]
+        github.device_start()
+        self.assertEqual(github.device_poll()["state"], "denied")
+        self.assertEqual(github.device_poll()["state"], "idle")
+        self.assertFalse(github.status()["signed_in"])

@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 from agents.diagnostic_rca.retrieval import retrieve
 from shared.events import publish_and_log
-from shared.llm import LLMUnavailable, for_agent
+from shared.llm import LLMUnavailable, for_agent, parse_json_object
 
 load_dotenv()
 BASE = Path(__file__).parent
@@ -70,8 +70,8 @@ def chat_json(messages: list[dict], temperature: float = 0, retries: int = 2) ->
     for attempt in range(retries + 1):
         text = model.chat(messages, json_mode=True, temperature=temperature)
         try:
-            return json.loads(text)
-        except json.JSONDecodeError:
+            return parse_json_object(text)  # reasoning models may wrap the JSON in prose
+        except LLMUnavailable:
             print(f"[warn] model returned invalid JSON (attempt {attempt + 1}/{retries + 1})")
     return {}
 
