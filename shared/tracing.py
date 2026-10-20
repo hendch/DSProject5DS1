@@ -16,8 +16,22 @@ import os
 PARENT_ENV = "OPSAGENTS_TRACE_PARENT"
 
 
+_installed: bool | None = None
+
+
 def enabled() -> bool:
-    return os.getenv("LANGSMITH_TRACING", "").lower() == "true" and bool(os.getenv("LANGSMITH_API_KEY"))
+    global _installed
+    if os.getenv("LANGSMITH_TRACING", "").lower() != "true" or not os.getenv("LANGSMITH_API_KEY"):
+        return False
+    if _installed is None:  # switched on but not installed: run without tracing rather than crash
+        try:
+            import langsmith  # noqa: F401
+            _installed = True
+        except ImportError:
+            _installed = False
+            print("[tracing] LANGSMITH_TRACING is on but langsmith isn't installed "
+                  '(pip install -e ".[dev]"); running without tracing')
+    return _installed
 
 
 def _project() -> str:
