@@ -25,6 +25,10 @@ agents/merge_assistant/test-repo/
 # Anchored on purpose: a bare `data/` would also hide the agent's source package.
 agents/drift_detection/runtime/
 agents/drift_detection/eval/results/
+agents/diagnostic_rca/eval/results/
+agents/orchestrator/eval/results/
+agents/guardrail/eval/results/
+agents/code_reviewer/eval/results/
 
 # code_reviewer run output
 agent-out/

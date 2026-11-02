@@ -1,0 +1,13 @@
+{
+  "_comment": "Code Reviewer benchmark: seeded pull requests on demo/base. `scenario` is the folder overlaid on the base (relative to the repo root). `expect`: finding categories that must appear, one group per issue (any category in the group counts). `forbid_fixes`: lint fixes the model must not request (they break the code). `clean`: no medium or high finding should be reported.",
+  "cases": [
+    {"id": "leaky_pr", "scenario": "demo/scenarios/leaky_pr",
+     "expect": [["leakage", "split"], ["evaluation"], ["reproducibility", "split"], ["injection", "security"]], "forbid_fixes": [], "clean": false},
+    {"id": "side_effect_pr", "scenario": "demo/scenarios/side_effect_pr",
+     "expect": [], "forbid_fixes": ["F401"], "clean": false},
+    {"id": "secret_pr", "scenario": "agents/code_reviewer/eval/scenarios/secret_pr",
+     "expect": [["security"]], "forbid_fixes": [], "clean": false},
+    {"id": "clean_pr", "scenario": "agents/code_reviewer/eval/scenarios/clean_pr",
+     "expect": [], "forbid_fixes": [], "clean": true}
+  ]
+}
