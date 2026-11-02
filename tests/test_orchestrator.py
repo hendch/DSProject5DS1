@@ -202,7 +202,8 @@ class Api(Base):
     def setUp(self):
         super().setUp()
         from app.api import create_app
-        self.client = TestClient(create_app(self.orch))
+        with mock.patch.dict("os.environ", {"APP_PASSWORD": ""}):  # a developer's .env may set one
+            self.client = TestClient(create_app(self.orch))
 
     def test_scenario_run_and_vote_through_the_api(self):
         run_id = self.client.post("/api/runs", json={"scenario_id": "failed_deploy", "requested_by": "sami"}).json()["run_id"]
@@ -237,6 +238,56 @@ class Api(Base):
         self.assertFalse(self.client.get("/api/github/status").json()["connected"])
         alerts.raise_alert("critical", "x")
         self.assertEqual(self.client.post("/api/alerts/read", json={"ids": "all"}).json(), {"marked": 1})
+
+    def test_a_rejected_github_token_is_not_passed_on_as_401(self):
+        with mock.patch.object(github, "sign_in", side_effect=github.GitHubError(401, "GitHub rejected the token")):
+            r = self.client.post("/api/github/token", json={"token": "ghp_rejected_token"})
+        self.assertEqual(r.status_code, 400)  # a 401 would sign the browser out of the app
+
+
+class SignIn(Base):
+    """APP_PASSWORD: a login page and a 30-day cookie instead of the browser's own box."""
+
+    def setUp(self):
+        super().setUp()
+        from app.api import create_app
+        env = mock.patch.dict("os.environ", {"APP_USERNAME": "opsagents", "APP_PASSWORD": "s3cret"})
+        env.start()
+        self.addCleanup(env.stop)
+        self.client = TestClient(create_app(self.orch), follow_redirects=False)
+
+    def sign_in(self, password="s3cret"):
+        return self.client.post("/login", data={"username": "opsagents", "password": password})
+
+    def test_signed_out_pages_go_to_the_login_page_and_the_api_answers_401(self):
+        self.assertEqual(self.client.get("/").headers["location"], "/login")
+        r = self.client.get("/api/runs")
+        self.assertEqual(r.status_code, 401)
+        self.assertNotIn("www-authenticate", r.headers)  # no browser pop-up
+        self.assertEqual(self.client.get("/api/health").status_code, 200)
+        self.assertEqual(self.client.get("/login").status_code, 200)
+
+    def test_signing_in_once_keeps_the_session(self):
+        r = self.sign_in()
+        self.assertEqual((r.status_code, r.headers["location"]), (303, "/"))
+        self.assertIn("httponly", r.headers["set-cookie"].lower())
+        self.assertEqual(self.client.get("/api/runs").status_code, 200)
+        self.assertEqual(self.client.get("/login").headers["location"], "/")
+
+    def test_wrong_password_and_forged_cookie_are_refused(self):
+        self.assertEqual(self.sign_in("nope").status_code, 401)
+        self.client.cookies.set("opsagents_session", "9999999999.forged")
+        self.assertEqual(self.client.get("/api/runs").status_code, 401)
+
+    def test_changing_the_password_and_signing_out_end_the_session(self):
+        self.sign_in()
+        with mock.patch.dict("os.environ", {"APP_PASSWORD": "changed"}):
+            self.assertEqual(self.client.get("/api/runs").status_code, 401)
+        self.client.get("/logout")
+        self.assertEqual(self.client.get("/api/runs").status_code, 401)
+
+    def test_scripts_can_use_basic_auth(self):
+        self.assertEqual(self.client.get("/api/runs", auth=("opsagents", "s3cret")).status_code, 200)
 
 
 # ---- GitHub watcher with GitHub's API faked -------------------------------------------------------

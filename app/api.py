@@ -4,18 +4,21 @@ Everything the UI shows comes from here: runs, approvals, GitHub activity, alert
 analytics, agents and the audit log. `create_app(orchestrator)` wires it to a running
 orchestrator; app/__main__.py starts the whole platform.
 """
+import asyncio
 import base64
+import hashlib
 import hmac
 import os
 import shutil
 import time
+import urllib.parse
 import uuid
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -188,9 +191,13 @@ def create_app(orchestrator) -> FastAPI:
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
     if os.getenv("APP_PASSWORD"):
         app.middleware("http")(require_password)
+        add_sign_in(app)
 
     def gh_error(e: github.GitHubError):
-        raise HTTPException(e.status if 400 <= e.status < 600 else 502, str(e))
+        # GitHub's 401 is about the GitHub token, not this app's sign-in: passed on as 401 it
+        # makes the browser drop the APP_PASSWORD credentials and ask for them again.
+        status = 400 if e.status == 401 else e.status
+        raise HTTPException(status if 400 <= status < 600 else 502, str(e))
 
     @app.get("/api/health")
     def health():
@@ -451,25 +458,139 @@ def create_app(orchestrator) -> FastAPI:
     return app
 
 
+# ---- sign-in -------------------------------------------------------------------------------
 # A hosted copy is reachable by anyone: with APP_PASSWORD set, every page and API call needs
-# it (HTTP Basic, user APP_USERNAME). The health check stays open for the host's probes.
-OPEN_PATHS = {"/api/health"}
+# a sign-in (user APP_USERNAME). Signing in on /login sets a cookie that lasts SESSION_DAYS,
+# so each device signs in once. The cookie is signed with a key derived from the password:
+# changing APP_PASSWORD signs everyone out. Scripts can still send HTTP Basic credentials.
+# The health check stays open for the host's probes.
+SESSION_COOKIE = "opsagents_session"
+SESSION_DAYS = 30
+OPEN_PATHS = {"/api/health", "/login", "/logout"}
+
+
+def _credentials() -> tuple[str, str]:
+    return os.getenv("APP_USERNAME", "opsagents"), os.environ["APP_PASSWORD"]
+
+
+def _same(a: str, b: str) -> bool:
+    return hmac.compare_digest(a.encode(), b.encode())
+
+
+def _session_key() -> bytes:
+    return hashlib.sha256(("opsagents-session:" + _credentials()[1]).encode()).digest()
+
+
+def _session_token(user: str) -> str:
+    expires = str(int(time.time()) + SESSION_DAYS * 86400)
+    signature = hmac.new(_session_key(), f"{user}|{expires}".encode(), hashlib.sha256).hexdigest()
+    return f"{expires}.{signature}"
+
+
+def _valid_session(token: str) -> bool:
+    expires, _, signature = (token or "").partition(".")
+    if not expires.isdigit() or int(expires) < time.time():
+        return False
+    expected = hmac.new(_session_key(), f"{_credentials()[0]}|{expires}".encode(), hashlib.sha256).hexdigest()
+    return _same(signature, expected)
+
+
+def _valid_basic(header: str) -> bool:
+    if not header.startswith("Basic "):
+        return False
+    try:
+        name, _, secret = base64.b64decode(header[6:]).decode().partition(":")
+    except ValueError:
+        return False
+    user, password = _credentials()
+    return _same(name, user) and _same(secret, password)
 
 
 async def require_password(request, call_next):
     if request.url.path in OPEN_PATHS or request.method == "OPTIONS":
         return await call_next(request)
-    user, password = os.getenv("APP_USERNAME", "opsagents"), os.environ["APP_PASSWORD"]
-    given = request.headers.get("authorization", "")
-    if given.startswith("Basic "):
-        try:
-            name, _, secret = base64.b64decode(given[6:]).decode().partition(":")
-        except ValueError:
-            name, secret = "", ""
-        if hmac.compare_digest(name.encode(), user.encode()) and hmac.compare_digest(secret.encode(), password.encode()):
-            return await call_next(request)
-    return Response("Sign in to OpsAgents.", status_code=401,
-                    headers={"WWW-Authenticate": 'Basic realm="OpsAgents", charset="UTF-8"'})
+    if _valid_session(request.cookies.get(SESSION_COOKIE, "")) or _valid_basic(request.headers.get("authorization", "")):
+        return await call_next(request)
+    if request.url.path.startswith("/api/"):  # no WWW-Authenticate: the browser must not pop up its own box
+        return JSONResponse({"detail": "Sign in to OpsAgents."}, status_code=401)
+    return RedirectResponse("/login", status_code=303)
+
+
+def login_page(error: str = "") -> HTMLResponse:
+    message = f'<p class="error">{error}</p>' if error else ""
+    return HTMLResponse(LOGIN_HTML.replace("{message}", message), status_code=401 if error else 200,
+                        headers=NO_CACHE)
+
+
+def add_sign_in(app: FastAPI) -> None:
+    @app.get("/login", include_in_schema=False)
+    def login_form(request: Request):
+        if _valid_session(request.cookies.get(SESSION_COOKIE, "")):
+            return RedirectResponse("/", status_code=303)
+        return login_page()
+
+    @app.post("/login", include_in_schema=False)
+    async def login(request: Request):
+        form = urllib.parse.parse_qs((await request.body()).decode(errors="replace"))
+        name, secret = form.get("username", [""])[0], form.get("password", [""])[0]
+        user, password = _credentials()
+        if not (_same(name, user) and _same(secret, password)):
+            await asyncio.sleep(1)  # slows down guessing
+            return login_page("Wrong user name or password.")
+        response = RedirectResponse("/", status_code=303)
+        https = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
+        response.set_cookie(SESSION_COOKIE, _session_token(user), max_age=SESSION_DAYS * 86400,
+                            httponly=True, secure=https, samesite="lax")
+        return response
+
+    @app.get("/logout", include_in_schema=False)
+    def logout():
+        response = RedirectResponse("/login", status_code=303)
+        response.delete_cookie(SESSION_COOKIE)
+        return response
+
+
+LOGIN_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · OpsAgents</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px;
+         background: #17171a; color: #e6e6e9;
+         font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  form { width: 100%; max-width: 340px; background: #1f1f24; border: 1px solid #2c2c33;
+         border-radius: 12px; padding: 28px; }
+  h1 { margin: 0 0 4px; font-size: 20px; }
+  h1 span { color: #ff7a1a; }
+  p { margin: 0 0 20px; color: #8b8b95; }
+  label { display: block; margin: 14px 0 6px; font-size: 13px; color: #8b8b95; }
+  input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #3a3a43;
+          background: #17171a; color: inherit; font: inherit; }
+  input:focus { outline: none; border-color: #ff7a1a; }
+  button { width: 100%; margin-top: 22px; padding: 10px; border: 0; border-radius: 8px;
+           background: #ff7a1a; color: #17171a; font: inherit; font-weight: 600; cursor: pointer; }
+  button:hover { background: #ff8f3d; }
+  .error { margin: 14px 0 0; color: #f87171; }
+</style>
+</head>
+<body>
+<form method="post" action="/login">
+  <h1>Ops<span>Agents</span></h1>
+  <p>Sign in once on this device; you stay signed in for 30 days.</p>
+  {message}
+  <label for="username">User name</label>
+  <input id="username" name="username" autocomplete="username" required autofocus>
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password" autocomplete="current-password" required>
+  <button type="submit">Sign in</button>
+</form>
+</body>
+</html>
+"""
 
 
 # The dashboard is small: always revalidate it, so an update is never hidden by a stale cache.

@@ -238,8 +238,12 @@ In the image, the app starts with `python -m app --cloud`. That means:
   deploys, and migrations run on every start;
 - OPA runs inside the container, next to the app;
 - the app listens on `0.0.0.0` on Render's `PORT`;
-- with `APP_PASSWORD` set, every page and API call needs a sign-in (HTTP Basic, user
-  `APP_USERNAME`). `/api/health` stays open for Render's health check.
+- with `APP_PASSWORD` set, every page and API call needs a sign-in, as user
+  `APP_USERNAME`:
+  - you sign in once per device on `/login`, and a cookie keeps you signed in for 30 days;
+  - `/logout` signs you out, and changing `APP_PASSWORD` signs everyone out;
+  - scripts can send the same credentials as HTTP Basic;
+  - `/api/health` stays open for Render's health check.
 
 ### Steps
 

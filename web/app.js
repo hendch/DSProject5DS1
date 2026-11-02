@@ -323,6 +323,9 @@
       return res.text().then(function (text) {
         var data = null;
         if (text) { try { data = JSON.parse(text); } catch (e) { data = text; } }
+        if (res.status === 401) {  // signed out (password set on the server): back to the login page
+          location.href = location.origin + '/login';
+        }
         if (!res.ok) {
           var err = new Error(detailMessage(data) || (res.status + ' ' + res.statusText));
           err.status = res.status;
