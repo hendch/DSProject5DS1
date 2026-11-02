@@ -3,6 +3,9 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .env
-data/
+# Dataset and splits are committed; simulator output and the local run database are not.
+data/batches/
+data/*.db
+data/*.db-*
 models/
 eval/results/
