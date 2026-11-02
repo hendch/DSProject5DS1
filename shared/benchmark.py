@@ -9,9 +9,10 @@ suite, and with --langsmith also records each model as a LangSmith experiment.
     python -m shared.benchmark --model rules --model rca=deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
     python -m shared.benchmark --repeats 3 --langsmith
 
-A model is picked through <AGENT>_LLM_MODEL, so every model must be served by that agent's
-endpoint (<AGENT>_LLM_BASE_URL in .env). "rules" is the suite's no-LLM baseline, when it has one.
-Suites run in parallel threads; each one only changes its own agent's variable.
+A model is picked through <AGENT>_LLM_MODEL (XAI_MODEL for drift), so every model must be served
+by that agent's endpoint (<AGENT>_LLM_BASE_URL / XAI_BASE_URL in .env). "rules" is the suite's
+no-LLM baseline, when it has one. Suites run in parallel threads; each one only changes its own
+agent's variable. Suites that need PostgreSQL share one throwaway database.
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ SUITES = {
     "triage": "agents.orchestrator.evaluation",
     "guardrail": "agents.guardrail.evaluation",
     "code_review": "agents.code_reviewer.evaluation",
+    "drift": "agents.drift_detection.benchmark",
 }
 
 
@@ -57,10 +59,46 @@ class Suite:
     setup: Callable[[Suite], Callable[[], None] | None] | None = None  # returns a cleanup
     meta: dict = field(default_factory=dict)
     note: str = ""
+    needs_db: bool = False                  # runs against the benchmark database (see main)
+    model_variable: str | None = None       # default: <AGENT>_LLM_MODEL
+    default_model: Callable[[], str] | None = None  # default: the agent's model in .env
+
+    @property
+    def variable(self) -> str:
+        return self.model_variable or f"{self.agent.upper()}_LLM_MODEL"
 
 
 def load_suite(name: str) -> Suite:
     return importlib.import_module(SUITES[name]).suite()
+
+
+def db_ready() -> bool:
+    """Whether main() created the shared benchmark database (DATABASE_URL points at it)."""
+    return os.environ.get("BENCHMARK_DATABASE") == "1"
+
+
+def start_database() -> Callable[[], None] | None:
+    """One throwaway migrated database for every suite that needs one: they run in parallel
+    threads and DATABASE_URL is process-wide, so they must share it. None without Postgres."""
+    import unittest
+
+    from shared.testing import drop_database, fresh_database
+
+    try:
+        name, url = fresh_database()
+    except unittest.SkipTest:
+        return None
+    previous = {k: os.environ.get(k) for k in ("DATABASE_URL", "BENCHMARK_DATABASE")}
+    os.environ.update({"DATABASE_URL": url, "BENCHMARK_DATABASE": "1"})
+
+    def stop():
+        for k, v in previous.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        drop_database(name)
+    return stop
 
 
 def matches(text: str, groups: list[list[str]]) -> bool:
@@ -163,9 +201,10 @@ def run_one(suite: Suite, case: dict, model: str) -> dict:
 
 def run_suite(suite: Suite, models: list[str] | None = None, repeats: int = 1, case_ids: list[str] | None = None,
               progress: Callable[[str], None] | None = None, use_langsmith: bool = False) -> dict:
-    models = [m for m in (models or [for_agent(suite.agent).profile.model]) if m != RULES or suite.has_baseline]
+    default = suite.default_model() if suite.default_model else for_agent(suite.agent).profile.model
+    models = [m for m in (models or [default]) if m != RULES or suite.has_baseline]
     suite.cases = [c for c in suite.cases if not case_ids or c["id"] in case_ids]
-    variable = f"{suite.agent.upper()}_LLM_MODEL"
+    variable = suite.variable
     previous = os.environ.get(variable)
     cleanup = suite.setup(suite) if suite.setup else None
     meta = {"date": datetime.now().isoformat(timespec="seconds"), "cases": len(suite.cases),
@@ -236,8 +275,13 @@ def main(argv: list[str] | None = None, default_suites: list[str] | None = None)
         return run_suite(load_suite(name), models_for(name, args.models), args.repeats, args.cases,
                          progress=lambda m: print(f"[{name}] {m}", flush=True), use_langsmith=args.langsmith)
 
-    with ThreadPoolExecutor(max_workers=1 if args.sequential else len(names)) as pool:
-        outputs = dict(zip(names, pool.map(run, names)))
+    stop_db = start_database() if any(load_suite(n).needs_db for n in names) else None
+    try:
+        with ThreadPoolExecutor(max_workers=1 if args.sequential else len(names)) as pool:
+            outputs = dict(zip(names, pool.map(run, names)))
+    finally:
+        if stop_db:
+            stop_db()
     for out in outputs.values():
         print("\n" + out["markdown"])
         print(f"Saved to {out['path']}")

@@ -1,8 +1,8 @@
 """Case benchmark: how often does the RCA agent name the right root cause?
 
 Every case in eval/cases.json is a failed build log with the expected cause. The knowledge
-base is loaded into a throwaway PostgreSQL (shared.testing), so the benchmark never touches
-the demo database. "rules" is the no-LLM fallback, as a baseline.
+base is loaded into the runner's throwaway PostgreSQL, so the benchmark never touches the
+demo database. "rules" is the no-LLM fallback, as a baseline.
 
     python -m agents.diagnostic_rca.evaluation --model rules --model meta-llama/Llama-3.1-8B-Instruct
 
@@ -12,44 +12,28 @@ Runner, options and LangSmith experiments: shared/benchmark.py.
 from __future__ import annotations
 
 import json
-import os
 import time
-import unittest
-from collections.abc import Callable
 from pathlib import Path
 
 from agents.diagnostic_rca import agent, retrieval
 from shared import knowledge
-from shared.benchmark import RULES, Suite, main, matches
+from shared.benchmark import RULES, Suite, db_ready, main, matches
 from shared.llm import LLMUnavailable
 
 BASE = Path(__file__).parent / "eval"
 COLLECTION = "rca_eval"
 
 
-def setup_kb(suite: Suite, kb: list[dict]) -> Callable[[], None] | None:
-    """Fresh migrated database with the benchmark docs. Returns the cleanup, or None without Postgres."""
-    from shared.testing import drop_database, fresh_database
-
+def setup_kb(suite: Suite, kb: list[dict]) -> None:
+    """Load the benchmark docs into the benchmark database; without one, run without retrieval."""
     suite.meta.update({"retrieval": "off (no Postgres)", "embedding": knowledge.EMBEDDING_MODEL})
-    try:
-        name, url = fresh_database()
-    except unittest.SkipTest:
-        return None
-    previous = os.environ.get("DATABASE_URL")
-    os.environ["DATABASE_URL"] = url
+    if not db_ready():
+        retrieval.COLLECTION = f"{COLLECTION}_missing"  # never search the demo knowledge base
+        return
     knowledge.add_documents([{"id": d["id"], "source": d["id"], "content": d["content"]} for d in kb],
                             collection=COLLECTION)
     retrieval.COLLECTION = COLLECTION
     suite.meta["retrieval"] = "on"
-
-    def cleanup():
-        if previous is None:
-            os.environ.pop("DATABASE_URL", None)
-        else:
-            os.environ["DATABASE_URL"] = previous
-        drop_database(name)
-    return cleanup
 
 
 def run_one(case: dict, model: str) -> dict:
@@ -84,7 +68,7 @@ def suite() -> Suite:
     return Suite(name="rca", title="RCA agent", agent="diagnostic_rca", cases=data["cases"], run_one=run_one,
               scores={"top1": "Top-1 accuracy", "top3": "Top-3 accuracy", "source_ok": "Citation accuracy",
                       "retrieved_expected": "Retrieval hit", "confidence": "Mean confidence"},
-              primary="top1", out_dir=BASE / "results", setup=lambda s: setup_kb(s, data["kb"]),
+              primary="top1", out_dir=BASE / "results", setup=lambda s: setup_kb(s, data["kb"]), needs_db=True,
               note="Top-1: the first cause matches the expected one. Citation: it cites the expected "
                    "knowledge-base doc (or 'none' when no doc fits). Retrieval hit: the expected doc was "
                    "retrieved at all (independent of the model).")
