@@ -2,6 +2,7 @@
 
     python -m app                 # everything on this machine, no Docker (fresh database)
     python -m app --docker        # use DATABASE_URL / OPA_URL from .env (docker compose up -d)
+    python -m app --cloud         # hosting (Render): DATABASE_URL from the host, OPA next to the app
     python -m app --port 8080 --no-browser
 
 Starts PostgreSQL + OPA (embedded mode), applies migrations, then runs in the
@@ -34,19 +35,30 @@ def seed_knowledge_base() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    # Hosts such as Render give the port in PORT and need the app on every interface.
+    hosted = "PORT" in os.environ
     parser.add_argument("--docker", action="store_true", help="use the services in .env instead of embedded ones")
-    parser.add_argument("--port", type=int, default=int(os.getenv("APP_PORT", "8080")))
-    parser.add_argument("--host", default=os.getenv("APP_HOST", "127.0.0.1"))
+    parser.add_argument("--cloud", action="store_true",
+                        help="use DATABASE_URL from the environment and start OPA next to the app (hosting)")
+    parser.add_argument("--port", type=int, default=int(os.getenv("PORT") or os.getenv("APP_PORT", "8080")))
+    parser.add_argument("--host", default=os.getenv("APP_HOST", "0.0.0.0" if hosted else "127.0.0.1"))
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--no-seed", action="store_true", help="don't add sample documents to the knowledge base")
     args = parser.parse_args()
     load_dotenv()
 
     stoppers = []
-    if args.docker:
+    if args.docker or args.cloud:
         from shared.migrate import migrate
+        if not os.getenv("DATABASE_URL"):
+            raise SystemExit("DATABASE_URL is not set: point it at a PostgreSQL 16 database with pgvector")
         migrate(os.environ["DATABASE_URL"])
         os.environ["KNOWLEDGE_COLLECTION"] = os.getenv("KNOWLEDGE_COLLECTION", "devops_kb")
+        if args.cloud:  # always its own OPA: an OPA_URL copied from a laptop's .env would point nowhere
+            from shared.devstack import start_opa
+            opa_url, stop_opa = start_opa()
+            os.environ["OPA_URL"] = opa_url
+            stoppers.append(stop_opa)
     else:
         from shared.devstack import start_embedded
         stoppers = start_embedded("opsagents-pg-")
@@ -84,7 +96,7 @@ def main() -> None:
 
     url = f"http://localhost:{args.port}"
     print(f"\n  OpsAgents is running: {url}\n  API docs: {url}/docs\n  Ctrl+C to stop\n")
-    if not args.no_browser:
+    if not (args.no_browser or args.cloud or hosted):
         threading.Timer(1.5, webbrowser.open, args=(url,)).start()
     try:
         uvicorn.run(create_app(orchestrator), host=args.host, port=args.port, log_level="warning")

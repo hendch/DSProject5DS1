@@ -24,6 +24,7 @@ Contents:
 [Quick start](#quick-start) ·
 [Requirements](#requirements) ·
 [Install and run, step by step](#install-and-run-step-by-step) ·
+[Deploy to Render](#deploy-to-render) ·
 [Configuration](#configuration) ·
 [Using the dashboard](#using-the-dashboard) ·
 [Connect GitHub](#connect-github) ·
@@ -188,6 +189,7 @@ Options:
 | `--no-browser` | off | Don't open a browser tab. |
 | `--no-seed` | off | Don't add the sample documents to the knowledge base. |
 | `--docker` | off | Use the PostgreSQL and OPA in `.env` instead of the embedded ones. |
+| `--cloud` | off | Use the PostgreSQL in `DATABASE_URL` and start OPA next to the app (hosting, see [Deploy to Render](#deploy-to-render)). |
 
 ### 6. (Optional) A persistent database with Docker
 
@@ -215,8 +217,72 @@ The app listens on `127.0.0.1` only. To show it to someone else, open a tunnel t
 ssh -o ServerAliveInterval=30 -R 80:127.0.0.1:8080 nokey@localhost.run
 ```
 
-There is no login yet. Anyone with the link can approve actions, so only share it with
-people you trust and close the tunnel afterwards.
+Set `APP_PASSWORD` first (see [Deploy to Render](#deploy-to-render)). Without it, anyone
+with the link can approve actions.
+
+---
+
+## Deploy to Render
+
+The repository is ready for [Render](https://render.com). It contains:
+
+| File | Purpose |
+|---|---|
+| [`Dockerfile`](Dockerfile) | Python 3.12 image with git, OPA 1.20.2 and OpenTofu 1.9.1. The embedding model is downloaded at build time. The app runs as a non-root user. |
+| [`render.yaml`](render.yaml) | Blueprint: the web service plus a PostgreSQL 16 database, with every setting wired up. |
+| [`.dockerignore`](.dockerignore) | Keeps `.env`, `venv/`, `.git` and generated files out of the image. |
+
+In the image, the app starts with `python -m app --cloud`. That means:
+
+- the database is the one in `DATABASE_URL` (Render Postgres), so data survives restarts and
+  deploys, and migrations run on every start;
+- OPA runs inside the container, next to the app;
+- the app listens on `0.0.0.0` on Render's `PORT`;
+- with `APP_PASSWORD` set, every page and API call needs a sign-in (HTTP Basic, user
+  `APP_USERNAME`). `/api/health` stays open for Render's health check.
+
+### Steps
+
+1. Push the branch you want to deploy to GitHub.
+2. On Render: **New → Blueprint**, connect the GitHub repository, pick the branch, then
+   **Apply**. Render creates `opsagents-db` (PostgreSQL 16) and `opsagents` (the web service).
+3. Render asks for the secrets marked `sync: false` in `render.yaml`:
+
+   | Secret | What to put |
+   |---|---|
+   | `LLM_API_KEY` | Your Hugging Face token (`hf_…`) |
+   | `CODE_REVIEWER_LLM_API_KEY` | Your xAI key |
+   | `XAI_API_KEY` | Your xAI key (Drift Detection) |
+   | `GITHUB_TOKEN` | Optional. You can also paste it in **Settings** later. |
+   | `LANGSMITH_API_KEY` | Optional, for tracing |
+
+4. Wait for the first build, about 5–10 minutes. Later builds reuse the cached layers.
+5. Open the service's **Environment** tab and copy `APP_PASSWORD` (Render generated it).
+6. Open `https://opsagents-<something>.onrender.com`, sign in as `opsagents` with that
+   password, and start a scenario from **Home**.
+
+To use **Drift Detection**, run `drift-agent init` once in the service's **Shell** tab.
+It downloads the dataset and trains the first model.
+
+### Plans and costs
+
+| Piece | Plan in `render.yaml` | Why |
+|---|---|---|
+| Web service | `starter` (512 MB) | The app peaked at about 310 MB in our test. Use `standard` (2 GB) if Render reports it ran out of memory, for example during drift training. |
+| Database | `basic-256mb` | Kept between deploys. The free database plan expires after 30 days. |
+
+The free web plan also works for a quick demo. But it sleeps after 15 minutes without
+visits, which stops the GitHub watcher, and it has no Shell tab.
+
+### Run the same image elsewhere
+
+```bash
+docker build -t opsagents .
+docker run -p 8080:8080 --env-file .env -e DATABASE_URL=postgresql://user:pass@host:5432/agents -e APP_PASSWORD=change-me opsagents
+```
+
+The database must be PostgreSQL 16 or newer with the `vector` extension available. Render
+Postgres, Neon and the `pgvector/pgvector:pg16` image all have it.
 
 ---
 
@@ -272,7 +338,9 @@ When a model can't be reached, every agent falls back to rules and the run is ma
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `APP_PORT` | 8080 | Dashboard and API port. |
+| `APP_PORT` | 8080 | Dashboard and API port. A host's `PORT` takes precedence and makes the app listen on `0.0.0.0`. |
+| `APP_PASSWORD` | – | When set, every page and API call needs a sign-in. Set it on any public deployment. |
+| `APP_USERNAME` | `opsagents` | The user name for that sign-in. |
 | `GITHUB_TOKEN` | – | Optional. You can also paste a token in **Settings**. |
 | `GITHUB_POLL_SECONDS` | 60 | How often the watcher polls GitHub. |
 | `ORCHESTRATOR_TRIAGE_MIN_CONFIDENCE` | 0.7 | Below this, free-text incidents go to a human. |
@@ -547,13 +615,15 @@ no LLM; the model calls are mocked.
 |---|---|---|
 | Guardrail | 48 | Risk scoring, approvals, malformed events, self-approval, audit chain |
 | Code Reviewer | 27 | Safety limits, patch validation, the LLM loop, an end-to-end review |
-| Drift Detection | 30 | Statistical tests (PSI, KS, chi-square) and the PostgreSQL store. 12 are skipped until its data package is pushed. |
+| Drift Detection | 30 | Statistical tests (PSI, KS, chi-square) and the PostgreSQL store. 12 are integration tests: they need `drift-agent init` and the database in `DATABASE_URL`. |
 | Dependency Resolver | 12 | Static parser and classifier fallbacks |
 | Orchestrator, GitHub, API, platform | 53 | Runs complete or wait for approval; a GitHub failure raises one alert and one investigation |
 | OPA policy | 20 | Each rule and the order the rules apply in |
 
-The counts above are from the prototype validation (20 Oct 2026). Last full run, 1 Nov 2026:
-**pytest 160 passed, 12 skipped; OPA 20/20; 0 failed.** Screenshots are in
+The counts above are from the prototype validation (20 Oct 2026). Last full run, 2 Nov 2026:
+**pytest 160 passed; OPA 20/20.** The 12 drift integration tests errored: with the data
+package now in the repository they run instead of being skipped, but they need a PostgreSQL
+at `DATABASE_URL` that `drift-agent init` has been run against. Screenshots are in
 `docs/test-results/`, and each test is explained in `docs/OpsAgents-Tests-Explained.docx`.
 
 A separate benchmark of 64 cases, with live models against a rules-only baseline, is in
@@ -636,11 +706,11 @@ docker-compose.yml      persistent PostgreSQL + OPA
 
 ## Known gaps
 
-- **Drift Detection is unavailable** until `agents/drift_detection/data` is pushed (it was
-  hidden by a `data/` line in `.gitignore`). Then run `drift-agent init`. The 12 skipped
-  drift tests will run once it is.
-- **No real sign-in.** "Acting as" is a dropdown and CORS is `*`. The next step is to tie
-  approvers to their GitHub sign-in.
+- **Drift Detection needs one setup step:** run `drift-agent init` once, which downloads the
+  dataset and trains the first model.
+- **No per-person sign-in.** `APP_PASSWORD` locks the whole app behind one shared password,
+  but "Acting as" is still a dropdown and CORS is `*`. The next step is to tie approvers to
+  their GitHub sign-in.
 - **Nothing is written back to GitHub.** Patches are dry runs. Pushing a bot branch,
   opening a draft PR and posting review comments are not implemented yet.
 - **Polling only, no webhooks.** The Merge Assistant and Drift Detection aren't triggered
@@ -651,7 +721,8 @@ docker-compose.yml      persistent PostgreSQL + OPA
 - **code_reviewer workflow:** `.github/workflows/code-review-agent.yml` still checks out the
   agent from the `code-reviewer` branch and runs `pytest` at the repository root. Scope it
   to `ml_demo/` once merged.
-- **Local deployment only.**
+- **One instance only.** The orchestrator and the GitHub watcher run inside the web process,
+  so don't scale the Render service beyond one instance.
 
 ## Team
 

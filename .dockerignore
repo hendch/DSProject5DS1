@@ -1,0 +1,20 @@
+# Keep secrets, local environments and generated files out of the image.
+.env
+.git
+.tools
+venv
+.venv
+**/__pycache__
+**/*.pyc
+*.egg-info
+.pytest_cache
+pgdata
+docs
+HANDOFF.md
+agent-out
+outbox
+**/.terraform
+**/*.tfstate*
+agents/merge_assistant/test-repo
+agents/drift_detection/runtime
+**/eval/results

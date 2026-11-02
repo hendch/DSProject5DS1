@@ -317,7 +317,9 @@
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
     }
-    return fetch('/api' + path, opts).then(function (res) {
+    // location.origin, not a relative URL: a page opened as user:password@host would
+    // otherwise make every request carry the credentials, which fetch refuses.
+    return fetch(location.origin + '/api' + path, opts).then(function (res) {
       return res.text().then(function (text) {
         var data = null;
         if (text) { try { data = JSON.parse(text); } catch (e) { data = text; } }

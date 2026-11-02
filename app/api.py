@@ -4,6 +4,8 @@ Everything the UI shows comes from here: runs, approvals, GitHub activity, alert
 analytics, agents and the audit log. `create_app(orchestrator)` wires it to a running
 orchestrator; app/__main__.py starts the whole platform.
 """
+import base64
+import hmac
 import os
 import shutil
 import time
@@ -13,7 +15,7 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -184,6 +186,8 @@ def agent_view(name: str) -> dict:
 def create_app(orchestrator) -> FastAPI:
     app = FastAPI(title="OpsAgents", version="1.0.0")
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+    if os.getenv("APP_PASSWORD"):
+        app.middleware("http")(require_password)
 
     def gh_error(e: github.GitHubError):
         raise HTTPException(e.status if 400 <= e.status < 600 else 502, str(e))
@@ -445,6 +449,27 @@ def create_app(orchestrator) -> FastAPI:
             return FileResponse(WEB / "index.html", headers=NO_CACHE)
         app.mount("/", FreshStaticFiles(directory=WEB), name="web")
     return app
+
+
+# A hosted copy is reachable by anyone: with APP_PASSWORD set, every page and API call needs
+# it (HTTP Basic, user APP_USERNAME). The health check stays open for the host's probes.
+OPEN_PATHS = {"/api/health"}
+
+
+async def require_password(request, call_next):
+    if request.url.path in OPEN_PATHS or request.method == "OPTIONS":
+        return await call_next(request)
+    user, password = os.getenv("APP_USERNAME", "opsagents"), os.environ["APP_PASSWORD"]
+    given = request.headers.get("authorization", "")
+    if given.startswith("Basic "):
+        try:
+            name, _, secret = base64.b64decode(given[6:]).decode().partition(":")
+        except ValueError:
+            name, secret = "", ""
+        if hmac.compare_digest(name.encode(), user.encode()) and hmac.compare_digest(secret.encode(), password.encode()):
+            return await call_next(request)
+    return Response("Sign in to OpsAgents.", status_code=401,
+                    headers={"WWW-Authenticate": 'Basic realm="OpsAgents", charset="UTF-8"'})
 
 
 # The dashboard is small: always revalidate it, so an update is never hidden by a stale cache.

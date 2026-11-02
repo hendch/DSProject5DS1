@@ -1,0 +1,71 @@
+# Render Blueprint: the OpsAgents web service and its PostgreSQL database.
+# On Render: New > Blueprint, pick this repository and branch, then fill in the secrets
+# it asks for (the ones marked sync: false). See README.md, "Deploy to Render".
+services:
+  - type: web
+    name: opsagents
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter               # 512 MB: the app peaks around 310 MB; use standard (2 GB) if it runs out
+
+    region: frankfurt
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: opsagents-db
+          property: connectionString
+      # Sign-in for the dashboard and the API (user APP_USERNAME). Render generates the
+      # password: find it under the service's Environment tab.
+      - key: APP_USERNAME
+        value: opsagents
+      - key: APP_PASSWORD
+        generateValue: true
+      # Models: the team's line-up (README.md, "Models").
+      - key: LLM_BASE_URL
+        value: https://router.huggingface.co/v1
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_MODEL
+        value: meta-llama/Llama-3.1-8B-Instruct
+      - key: DIAGNOSTIC_RCA_LLM_MODEL
+        value: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+      - key: DIAGNOSTIC_RCA_LLM_JSON_MODE
+        value: "false"
+      - key: DIAGNOSTIC_RCA_LLM_MAX_TOKENS
+        value: "2500"
+      - key: GUARDRAIL_LLM_MODEL
+        value: Qwen/Qwen2.5-7B-Instruct:featherless-ai
+      - key: CODE_REVIEWER_LLM_BASE_URL
+        value: https://api.x.ai/v1
+      - key: CODE_REVIEWER_LLM_API_KEY
+        sync: false
+      - key: CODE_REVIEWER_LLM_MODEL
+        value: grok-4.20-0309-non-reasoning
+      - key: XAI_BASE_URL
+        value: https://api.x.ai/v1
+      - key: XAI_API_KEY
+        sync: false
+      - key: XAI_MODEL
+        value: grok-4.20-0309-reasoning
+      # GitHub: optional here, the token can also be pasted in Settings.
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_POLL_SECONDS
+        value: "60"
+      # Tracing: optional.
+      - key: LANGSMITH_TRACING
+        value: "false"
+      - key: LANGSMITH_API_KEY
+        sync: false
+      - key: LANGSMITH_PROJECT
+        value: opsagents
+
+databases:
+  - name: opsagents-db
+    databaseName: agents
+    user: devops
+    plan: basic-256mb
+    region: frankfurt
+    postgresMajorVersion: "16"
